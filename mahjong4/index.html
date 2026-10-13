@@ -165,12 +165,27 @@
   #hand .mymelds { display: flex; gap: calc(4px * var(--k, 1)); --w: var(--mw, calc(18px * var(--k, 1))); align-items: flex-end; }
   #hand .conc { display: flex; gap: 2px; align-items: flex-end; --w: var(--hw, calc(26px * var(--k, 1))); }
   #hand .conc .tl { transition: transform .12s; cursor: pointer; }
-  #hand .conc .tl.sel { transform: translateY(-28%); box-shadow: 0 0 0 .07em #ffb300, 0 .3em .4em rgba(0,0,0,.4); }
+  #hand .conc .tl.sel { transform: translateY(-24%); box-shadow: 0 0 0 .08em #ffb300, 0 0 .35em .08em rgba(255,190,40,.95), 0 .3em .4em rgba(0,0,0,.4); }
+  #hand .drawnWrap { position: relative; display: flex; flex-direction: column; align-items: center; }
+  #hand .drawnWrap > small { position: absolute; top: calc(-13px * var(--k, 1)); left: 50%; transform: translateX(-50%); font-size: calc(10px * var(--k, 1)); font-weight: 900; letter-spacing: .5px;
+    color: #06323f; background: #7ee0ff; border-radius: calc(6px * var(--k, 1)); padding: 0 calc(5px * var(--k, 1)); line-height: 1.35; white-space: nowrap; pointer-events: none; }
+  #hand .conc .tl.drawn:not(.sel) { box-shadow: 0 0 0 .06em #7ee0ff, 0 0 .3em .05em rgba(120,220,255,.85), .05em .07em 0 #c9b27a; }
+  #hand .drawnWrap:has(.sel) > small { display: none; }
   #hand .conc .gap { width: calc(7px * var(--k, 1)); flex: none; }
   #hand.myturn .conc .tl:not(.sel):active { transform: translateY(-8%); }
   #meInfo .nm { font-weight: 800; } #meInfo .sc { font-weight: 800; color: #ffe7a6; font-variant-numeric: tabular-nums; }
   #meInfo .help { margin-left: auto; font-size: calc(12px * var(--k, 1)); color: #cfe9dc; text-align: right; display: flex; align-items: center; gap: calc(3px * var(--k, 1)); --w: calc(13px * var(--k, 1)); }
   #meInfo.active { background: linear-gradient(90deg, rgba(255,210,90,.2), transparent); }
+  /* one-line "what to do now" prompt */
+  #meInfo .prompt { flex: 1; min-width: 0; font-size: calc(15px * var(--k, 1)); font-weight: 800; color: #fff6dc; text-align: right; line-height: 1.2; }
+  #meInfo.active .prompt, #meInfo .prompt.me { color: #ffe27a; }
+  #meInfo .prompt b { color: #ffe27a; }
+  #meInfo .meTag { display: inline-flex; align-items: center; gap: calc(6px * var(--k, 1)); white-space: nowrap; font-size: calc(13px * var(--k, 1)); opacity: .9; }
+  .menuList { display: flex; flex-direction: column; gap: calc(8px * var(--k, 1)); margin-top: calc(8px * var(--k, 1)); }
+  .menuList button { min-height: calc(50px * var(--k, 1)); border: 0; border-radius: calc(14px * var(--k, 1)); font-weight: 800; font-size: calc(17px * var(--k, 1)); text-align: left; padding: 0 calc(16px * var(--k, 1));
+    background: #efe5c8; color: #2b2414; box-shadow: 0 2px 0 #b5a175; }
+  .menuList button.go { background: linear-gradient(#ffe27a, #f0b52a); box-shadow: 0 2px 0 #a87a10; text-align: center; }
+  .menuList small { display: block; font-size: calc(12px * var(--k, 1)); font-weight: 600; opacity: .65; }
 
   /* action / claim bar */
   .abtns { display: flex; gap: calc(8px * var(--k, 1)); }
@@ -191,11 +206,11 @@
 
   /* landscape phones */
   @media (orientation: landscape) and (min-aspect-ratio: 13/10) {
-    #game { grid-template-columns: minmax(0,1fr) var(--rcol, calc(168px * var(--k, 1))); grid-template-rows: auto auto minmax(0,1fr) auto auto;
-            grid-template-areas: "optop topbar" "mid me" "mid hints" "mid actions" "hand actions"; }
+    #game { grid-template-columns: minmax(0,1fr) var(--rcol, calc(168px * var(--k, 1))); grid-template-rows: auto minmax(0,1fr) auto auto auto;
+            grid-template-areas: "optop topbar" "mid hints" "mid me" "mid actions" "hand hand"; }
     #hints { margin: 0 calc(4px * var(--k, 1)); overflow-y: auto; min-height: 0; }
     #hints .hrow { grid-template-columns: auto minmax(0,1fr) auto; grid-template-areas: "n m m" "c c c"; row-gap: 2px; }
-    #hints .hneed { grid-area: n; flex-direction: row; gap: 4px; } #hints .hchips { grid-area: c; } #hints .hmeta { grid-area: m; flex-direction: row; justify-content: flex-end; gap: 6px; }
+    #hints .hneed { grid-area: n; } #hints .hchips { grid-area: c; } #hints .hmeta { grid-area: m; flex-direction: row; justify-content: flex-end; gap: 6px; }
     #hints .hsub { display: none; }
     #hints .hhead { flex-wrap: wrap; row-gap: 3px; }
     #topbar { flex-direction: column; align-items: stretch; gap: calc(4px * var(--k, 1)); padding: calc(4px * var(--k, 1)) calc(6px * var(--k, 1)); }
@@ -205,9 +220,10 @@
     #opTop .oinfo { flex-direction: row; align-items: center; gap: calc(6px * var(--k, 1)); min-width: 0; }
     #mid { padding: 2px calc(4px * var(--k, 1)); grid-template-columns: var(--sidew, calc(90px * var(--k, 1))) minmax(0,1fr) var(--sidew, calc(90px * var(--k, 1))); }
     #table { grid-template-areas: ". p2 ." "p3 c p1" ". p0 ."; }
-    #meInfo { flex-direction: column; align-items: stretch; gap: 2px; padding: calc(4px * var(--k, 1)) calc(6px * var(--k, 1)); font-size: calc(12px * var(--k, 1)); }
+    #meInfo { flex-wrap: wrap; justify-content: center; gap: 2px calc(6px * var(--k, 1)); padding: calc(5px * var(--k, 1)) calc(6px * var(--k, 1)); margin: calc(4px * var(--k, 1)) calc(4px * var(--k, 1)) 0; }
+    #meInfo .prompt { flex-basis: 100%; text-align: center; }
     #meInfo .help { margin-left: 0; justify-content: center; text-align: center; flex-wrap: wrap; }
-    #hand { min-height: 0; padding: calc(10px * var(--k, 1)) calc(4px * var(--k, 1)) calc(9px * var(--k, 1)); }
+    #hand { min-height: 0; padding: calc(14px * var(--k, 1)) calc(4px * var(--k, 1)) calc(8px * var(--k, 1)); }
     #actions { justify-content: flex-end; padding: calc(4px * var(--k, 1)) calc(6px * var(--k, 1)) calc(6px * var(--k, 1)); }
     .abtns { flex-direction: column; gap: calc(6px * var(--k, 1)); } .abtns button { min-height: calc(44px * var(--k, 1)); flex: none; }
     .claimq { flex-wrap: wrap; font-size: calc(12px * var(--k, 1)); margin-bottom: calc(4px * var(--k, 1)); }
@@ -287,10 +303,10 @@
   .hhead button { border: 0; border-radius: calc(8px * var(--k, 1)); background: rgba(255,255,255,.15); font-size: calc(11.5px * var(--k, 1)); font-weight: 800; padding: calc(4px * var(--k, 1)) calc(7px * var(--k, 1)); white-space: nowrap; margin-left: auto; }
   .hhead button + button { margin-left: 0; }
   .hhead button.fc { background: linear-gradient(#ffe27a, #f0b52a); color: #2b2410; }
-  .hrows { display: flex; flex-direction: column; gap: 2px; margin-top: 3px; }
+  .hrows { display: flex; flex-direction: column; gap: calc(3px * var(--k, 1)); margin-top: calc(4px * var(--k, 1)); }
   .hrow { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: calc(6px * var(--k, 1)); padding: 2px calc(4px * var(--k, 1)); border-radius: calc(8px * var(--k, 1)); cursor: pointer; background: rgba(0,0,0,.14); }
   .hrow.pin { background: rgba(255,210,90,.25); box-shadow: inset 0 0 0 1.5px #ffd46b; }
-  .hneed { display: flex; flex-direction: column; align-items: center; min-width: calc(26px * var(--k, 1)); font-weight: 900; font-size: calc(15px * var(--k, 1)); color: #ffe39a; line-height: 1; }
+  .hneed { display: flex; flex-direction: column; align-items: center; justify-content: center; width: calc(24px * var(--k, 1)); height: calc(24px * var(--k, 1)); border-radius: 50%; background: rgba(255,227,154,.16); font-weight: 900; font-size: calc(14px * var(--k, 1)); color: #ffe39a; line-height: 1; }
   .hneed small { font-size: calc(8.5px * var(--k, 1)); font-weight: 700; opacity: .75; color: #fff; }
   .hneed.mj { color: #ff8a6b; }
   .hchips { display: flex; flex-wrap: wrap; align-items: center; gap: 1px calc(4px * var(--k, 1)); min-width: 0; }
@@ -398,6 +414,10 @@
   body.th-koi #center { background: rgba(0,25,45,.32); }
   body.th-koi .sect { background: rgba(0,25,45,.25); }
   body.th-koi .logo h1 { color: #ffd9a0; }
+  details.more { margin: calc(10px * var(--k, 1)) 0; } details.more > summary { list-style: none; cursor: pointer; text-align: center; font-weight: 800; font-size: calc(15px * var(--k, 1)); color: #ffe7a6; padding: calc(10px * var(--k, 1)); border-radius: calc(12px * var(--k, 1)); background: rgba(0,0,0,.18); }
+  details.more > summary::-webkit-details-marker { display: none; }
+  details.more[open] > summary { margin-bottom: calc(8px * var(--k, 1)); }
+  .startBtn.top { margin-top: calc(14px * var(--k, 1)); }
 </style>
 </head>
 <body>
@@ -407,10 +427,8 @@
   <div id="topbar">
     <div id="tbInfo"></div>
     <div class="tbBtns">
-      <button id="bHelp" aria-label="Help">?</button>
-      <button id="bEye" aria-label="Reveal AI hands">👁</button>
-      <button id="bRestart" aria-label="Restart hand">↻</button>
-      <button id="bNew" aria-label="New game">New</button>
+      <button id="bHelp" aria-label="How to play">?</button>
+      <button id="bMenu" aria-label="Menu">☰ Menu</button>
     </div>
   </div>
   <div id="opTop" class="opp"></div>
@@ -2103,7 +2121,6 @@ const App = (() => {
     if (!g) return;
     const ld = g.lastDiscard;
     $('tbInfo').innerHTML = AMmode() ? `<span class="cjk">🇺🇸</span> American · Hand ${Math.max(1, g.handNo)}/${g.maxHands}` : `<span class="cjk">${WCH[g.roundWind]}</span> ${WNAME[g.roundWind]} round · Hand ${Math.max(1, g.handNo)}${g.cfg.length === 'quick' ? '/4' : ''}`;
-    $('bEye').classList.toggle('on', !!S.revealAI);
     const panes = { 1: $('opRight'), 2: $('opTop'), 3: $('opLeft') };
     for (const s of [1, 2, 3]) {
       panes[s].innerHTML = oppHTML(s, s === 2 ? 'top' : 'side');
@@ -2134,8 +2151,9 @@ const App = (() => {
       } else if (sh === 0) help = 'Ready after this discard';
       else help = `${sh} away from ready`;
     }
-    $('meInfo').innerHTML = `<span class="nm">${me.name}${g.dealer === 0 ? '<span class="dealer">D</span>' : ''}</span>
-      <span class="wind cjk w${w0}">${WCH[w0]}</span><span class="sc">${me.score}</span>${me.flowers.length ? `<span class="flw">🌸×${me.flowers.length}</span>` : ''}<span class="help">${help}</span>`;
+    const prompt = AMmode() ? promptAM() : (g.phase === 'end' ? '' : humanClaim() ? 'Take the discard, or Pass' : isHumanTurn() ? (sel == null ? 'Your turn: tap a tile to discard' : 'Tap it again (or Discard) to throw it') : g.phase === 'claim' ? 'Waiting for claims…' : `${g.players[g.current].name} is playing…`);
+    $('meInfo').innerHTML = `<span class="meTag"><span class="nm">${me.name}${g.dealer === 0 ? '<span class="dealer">D</span>' : ''}</span>
+      ${AMmode() ? '' : `<span class="wind cjk w${w0}">${WCH[w0]}</span>`}<span class="sc">${me.score}</span>${me.flowers.length ? `<span class="flw">🌸×${me.flowers.length}</span>` : ''}</span><span class="prompt${isHumanTurn() || humanClaim() || (AMmode() && g.phase === 'charleston') ? ' me' : ''}">${prompt}</span>${AMmode() || !help ? '' : `<span class="help">${help}</span>`}`;
     $('meInfo').classList.toggle('active', g.current === 0 && g.phase === 'discard');
     // hand
     const drawn = g.current === 0 && g.phase === 'discard' && g.justDrew ? g.lastDraw : null;
@@ -2143,7 +2161,7 @@ const App = (() => {
     const hand = $('hand');
     hand.classList.toggle('myturn', isHumanTurn());
     hand.innerHTML = (me.melds.length ? `<div class="mymelds">${me.melds.map(m => meldHTML(m, true)).join('')}</div>` : '') +
-      `<div class="conc">${conc.map(id => tile(id, handCls(id))).join('')}${drawn != null ? '<span class="gap"></span>' + tile(drawn, 'drawn ' + handCls(drawn)) : ''}</div>`;
+      `<div class="conc">${conc.map(id => tile(id, handCls(id))).join('')}${drawn != null ? '<span class="gap"></span><span class="drawnWrap"><small>NEW</small>' + tile(drawn, 'drawn ' + handCls(drawn)) + '</span>' : ''}</div>`;
     hand.classList.toggle('picking', AMmode() && g.phase === 'charleston');
     renderHints();
     renderActions();
@@ -2210,7 +2228,7 @@ const App = (() => {
     const land = matchMedia(LAND_MQ).matches;
     const vw = innerWidth;
     $('game').style.setProperty('--rcol', (land && AMmode() && S.hints ? Math.round(Math.min(vw * 0.34, 250 * K)) : Math.round(168 * K)) + 'px');
-    if (AMmode()) { const hw0 = $('hints').clientWidth || innerWidth; const cw = land ? Math.min(17 * K, (hw0 - 30) / 17) : Math.min(22 * K, (hw0 - 120 * K) / 15.5); $('hints').style.setProperty('--cw', Math.max(11, Math.floor(cw)) + 'px'); }
+    if (AMmode()) { const hw0 = $('hints').clientWidth || innerWidth; const cw = land ? Math.min(20 * K, (hw0 - 30) / 17) : Math.min(22 * K, (hw0 - 120 * K) / 15.5); $('hints').style.setProperty('--cw', Math.max(11, Math.floor(cw)) + 'px'); }
     const sidew = land ? Math.min(110 * K, Math.max(80 * K, vw * 0.11)) : Math.min(84 * K, Math.max(60, vw * 0.165));
     $('mid').style.setProperty('--sidew', sidew + 'px');
     // opponent meld tiles
@@ -2222,8 +2240,8 @@ const App = (() => {
     const n = me.hand.length, mt = me.melds.reduce((a, m) => a + m.tiles.length, 0);
     const gaps = n * 2 + 10 * K + me.melds.length * 4 * K + (me.melds.length ? 6 * K : 0);
     let hw = (W - gaps) / (n + 0.72 * mt);
-    hw = Math.min(hw, (land ? 44 : 52) * K);
-    if (land) hw = Math.min(hw, (innerHeight * 0.16) / 1.34);
+    hw = Math.min(hw, (land ? 58 : 56) * K);
+    if (land) hw = Math.min(hw, (innerHeight * 0.165) / 1.34);
     hw = Math.max(18, Math.floor(hw));
     hand.style.setProperty('--hw', hw + 'px');
     hand.style.setProperty('--mw', Math.floor(hw * 0.72) + 'px');
@@ -2233,7 +2251,7 @@ const App = (() => {
     if (!land && oL.parentNode !== tb) { tb.appendChild(oL); tb.appendChild(oR); }
     // table: choose pond columns + tile size that fit (each pond sized for >= 20 tiles)
     const TW = tb.clientWidth - 8, TH = tb.clientHeight - 8;
-    const cap = Math.max(20, ...g.players.map(p => p.pond.length));
+    const cap = Math.max(15, ...g.players.map(p => p.pond.length));
     const minSide = land ? 0 : 72 * K;
     const panelH = land ? 0 : Math.max(oL.scrollHeight, oR.scrollHeight, 100);
     let best = null;
@@ -2275,7 +2293,8 @@ const App = (() => {
   /* ---------- 6. game loop ---------- */
   const delay = () => S.SPEED_MS[S.speed] ?? 600;
   function schedule(ms = delay()) { clearTimeout(timer); timer = setTimeout(step, ms); }
-  const paused = () => !$('cardView').hidden || !$('help').hidden;
+  let menuOpen = false;
+  const paused = () => menuOpen || !$('cardView').hidden || !$('help').hidden;
   function step() {
     if (!g) return;
     if (paused()) { clearTimeout(timer); timer = setTimeout(step, 250); return; }
@@ -2342,12 +2361,31 @@ const App = (() => {
   $('hand').addEventListener('click', e => { const t = e.target.closest('.conc .tl'); if (t) onHandTap(+t.dataset.id); });
   $('actions').addEventListener('click', e => { const b = e.target.closest('button[data-act]'); if (b && !b.disabled) onAction(b.dataset.act); });
   $('bHelp').onclick = showHelp;
-  $('bEye').onclick = () => { S.revealAI = !S.revealAI; save(); render(); };
-  $('bRestart').onclick = () => {
-    if (!g || g.phase === 'over') return;
-    confirmBox('Restart this hand?', 'The hand is re-dealt; scores stay as they were before it.', () => { clearTimeout(timer); $('overlay').hidden = true; g.restartHand(); logSeen = g.log.length; after(400); });
-  };
-  $('bNew').onclick = () => confirmBox('Leave this game?', 'Back to the setup screen. The current match is lost.', () => { clearTimeout(timer); g = null; $('overlay').hidden = true; showSetup(); });
+  /* One menu for the rarely used controls (keeps the play screen calm). The game pauses while it is open. */
+  function showMenu() {
+    if (!g || !$('overlay').hidden) return;
+    menuOpen = true; const am = AMmode();
+    const close = () => { menuOpen = false; $('overlay').hidden = true; $('overlay').onclick = null; if (g) { render(); schedule(250); } };
+    openCard(`<h2>Menu</h2><p class="sub">The game is paused.</p><div class="menuList">
+      <button class="go" data-m="resume">▶ Back to game</button>
+      <button data-m="help">❓ How to play</button>
+      ${am ? `<button data-m="card">📋 Full card</button><button data-m="hints">${S.hints ? '🙈 Hide' : '💡 Show'} top 5 hands</button>` : ''}
+      <button data-m="eye">${S.revealAI ? '🙈 Hide' : '👁 Show'} computer players' tiles<small>For learning</small></button>
+      <button data-m="restart">↻ Restart this hand</button>
+      <button data-m="new">🏠 New game &amp; settings<small>Players, rules, tiles, speed</small></button></div>`, c => {
+      c.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+        const m = b.dataset.m; close();
+        if (m === 'help') showHelp();
+        else if (m === 'card') showCardView();
+        else if (m === 'hints') { S.hints = !S.hints; save(); render(); }
+        else if (m === 'eye') { S.revealAI = !S.revealAI; save(); render(); }
+        else if (m === 'restart') { if (g.phase !== 'over') confirmBox('Restart this hand?', 'The hand is re-dealt; scores stay as they were before it.', () => { clearTimeout(timer); $('overlay').hidden = true; g.restartHand(); logSeen = g.log.length; after(400); }); }
+        else if (m === 'new') confirmBox('Leave this game?', 'Back to the start screen. The current match is lost.', () => { clearTimeout(timer); g = null; $('overlay').hidden = true; showSetup(); });
+      });
+    });
+    $('overlay').onclick = e => { if (e.target.id === 'overlay' && menuOpen) close(); };
+  }
+  $('bMenu').onclick = showMenu;
   addEventListener('resize', () => { if (g) requestAnimationFrame(render); });
   addEventListener('orientationchange', () => setTimeout(() => g && render(), 200));
   document.addEventListener('gesturestart', e => e.preventDefault());
@@ -2486,19 +2524,19 @@ const App = (() => {
     if (!AMmode()) { el.hidden = true; return; }
     el.hidden = false;
     const tablet = K >= 1.25, land = matchMedia(LAND_MQ).matches;
-    if (!S.hints) { el.innerHTML = `<div class="hhead"><span class="ht">💡 Hints hidden</span><button data-h="show">Show top 5</button><button class="fc" data-h="card">📋 Full card</button></div>`; el.className = 'off'; return; }
+    if (!S.hints) { el.innerHTML = `<div class="hhead"><button data-h="show">💡 Show closest hands</button><button class="fc" data-h="card">📋 Full card</button></div>`; el.className = 'off'; return; }
     const top = topHands(5), me = g.players[0];
     const show = hintsOpen || tablet || land ? top.length : Math.min(2, top.length);
     const rows = top.slice(0, show).map(h => {
       const arr = AM.arrange(h.v, me.hand, me.melds);
       return `<div class="hrow${pin === h.hand.id ? ' pin' : ''}" data-hid="${h.hand.id}">
-        <span class="hneed${h.need === 0 ? ' mj' : ''}">${h.need === 0 ? 'MJ' : h.need}<small>${h.need === 0 ? 'now!' : 'away'}</small></span>
+        <span class="hneed${h.need === 0 ? ' mj' : ''}" title="tiles still needed">${h.need === 0 ? '✓' : h.need}</span>
         <span class="hchips">${chipsHTML(arr)}</span>
-        <span class="hmeta"><b>${h.hand.pts}</b><i class="${h.hand.x ? 'x' : 'c'}">${h.hand.x ? 'X' : 'C'}</i><small>${pin === h.hand.id ? '📌' : ''}${h.hand.id}</small></span></div>`;
+        <span class="hmeta"><b>${h.hand.pts}</b>${h.hand.x ? '' : '<i class="c" title="concealed: no calling">C</i>'}${pin === h.hand.id ? '<small>📌</small>' : ''}</span></div>`;
     }).join('');
     el.className = hintsOpen ? 'open' : '';
-    el.innerHTML = `<div class="hhead"><span class="ht">🐟 ${tablet || land ? 'Top 5 hands' : 'Your top 5 hands'}</span><span class="hsub">${pin ? 'target ' + pin + ' · tap again to unpin' : 'tap a hand to target it'}</span>
-      ${tablet || land ? '' : `<button data-h="more">${hintsOpen ? '▴ Less' : '▾ All 5'}</button>`}<button class="fc" data-h="card">📋 Full card</button><button data-h="hide" aria-label="Hide hints">✕</button></div>
+    el.innerHTML = `<div class="hhead"><span class="ht">🐟 Closest hands</span><span class="hsub">${pin ? '📌 pinned · tap to unpin' : 'tap one to aim for it'}</span>
+      ${tablet || land ? '' : `<button data-h="more">${hintsOpen ? '▴ Less' : '▾ More'}</button>`}<button class="fc" data-h="card">📋 Full card</button><button data-h="hide" aria-label="Hide hints">✕</button></div>
       <div class="hrows">${rows || '<div class="hnone">No card hand fits your exposures.</div>'}</div>`;
   }
   function keepSet() {       // tiles of the pinned target (highlighted in the hand)
@@ -2536,20 +2574,15 @@ const App = (() => {
     if (g.phase === 'charleston') {
       const c = g.ch;
       if (c.stage === 'vote') {
-        A.innerHTML = `<div class="claimq"><span>First Charleston done! Second Charleston (left, across, right)?</span></div>
-          <div class="abtns"><button class="go" data-act="ch:yes">Yes, keep passing</button><button data-act="ch:no">No, stop</button></div>`;
+        A.innerHTML = `<div class="abtns"><button class="go" data-act="ch:yes">Yes, pass again</button><button data-act="ch:no">No, stop</button></div>`;
         return;
       }
       const d = g.chDir(), to = g.players[DIRSEAT[d]].name;
       if (c.stage === 'courtesy') {
-        A.innerHTML = `<div class="chq"><span class="charrow">${DIRS.across[0]}</span><span>Courtesy pass <b>across</b> to ${to}: pick 0-3 tiles</span></div>
-          <div class="abtns"><button class="go" data-act="ch:pass">${chSel.length ? `Pass ${chSel.length} across ${DIRS.across[0]}` : 'Skip (pass none)'}</button></div>
-          <div class="hint">You swap the smaller number of tiles either of you offers. Jokers can't be passed.</div>`;
+        A.innerHTML = `<div class="abtns"><button class="go" data-act="ch:pass">${chSel.length ? `Pass ${chSel.length} across ${DIRS.across[0]}` : 'Skip (pass none)'}</button></div>`;
         return;
       }
-      A.innerHTML = `<div class="chq"><span class="charrow">${DIRS[d][0]}</span><span>Charleston ${c.idx + 1}/${c.seq.length}: pass 3 tiles <b>${DIRS[d][1]}</b> to ${to}</span></div>
-        <div class="abtns"><button class="go" data-act="ch:pass" ${chSel.length !== 3 ? 'disabled' : ''}>Pass ${chSel.length}/3 ${DIRS[d][0]}</button></div>
-        <div class="hint">Tap 3 tiles to pass (not jokers)${chNew.length ? ' · glowing tiles just arrived' : ''}</div>`;
+      A.innerHTML = c.picks[0] ? '' : `<div class="abtns"><button class="go" data-act="ch:pass" ${chSel.length !== 3 ? 'disabled' : ''}>Pass ${DIRS[d][0]} to ${to}</button></div>`;
       return;
     }
     if (humanClaim()) {
@@ -2572,14 +2605,31 @@ const App = (() => {
       if (o.mahjong) b += '<button class="win" data-act="mahjong">Mahjong!</button>';
       if (o.jokerSwaps.length) b += '<button class="go sm" data-act="jokermenu">Joker swap</button>';
       if (o.blankSwap) b += '<button class="go sm" data-act="blankmenu">Blank swap</button>';
-      b += `<button data-act="discard" ${sel == null ? 'disabled' : ''}>Discard</button>`;
-      A.innerHTML = `<div class="abtns">${b}</div><div class="hint">${sel == null ? 'Tap a tile to select it, tap again to discard' : 'Tap again (or Discard) to throw ' + tileName(typeOf(sel))}</div>`;
+      if (sel != null) b += `<button class="go" data-act="discard">Discard</button>`;
+      A.innerHTML = b ? `<div class="abtns">${b}</div>` : '';
       return;
     }
-    let msg = '';
-    if (g.phase === 'discard') msg = g.current === 0 ? 'Auto-playing for you…' : `${g.players[g.current].name} is thinking…`;
-    else if (g.phase === 'claim') msg = 'Waiting for calls…';
-    A.innerHTML = `<div class="status">${msg}</div>`;
+    A.innerHTML = '';          // nothing to press: the prompt line says who is playing
+  }
+  /* the one-line "what to do now" prompt above the hand */
+  function promptAM() {
+    if (g.phase === 'end' || g.phase === 'over') return '';
+    if (g.phase === 'charleston') {
+      const c = g.ch;
+      if (c.stage === 'vote') return 'Pass again? Choose Yes or No';
+      if (c.picks[0]) return 'Waiting for the others to pass…';
+      if (c.stage === 'courtesy') return `Optional: pick up to 3 tiles to pass ${DIRS.across[0]} across${chSel.length ? ` (${chSel.length} picked)` : ''}`;
+      const d = g.chDir();
+      return `Pick 3 tiles to pass ${DIRS[d][0]} ${d}${chSel.length ? ` (${chSel.length}/3)` : ''}`;
+    }
+    if (humanClaim()) { const o = g.claim.options[0]; return `${g.players[g.claim.from].name} threw ${tileName(typeOf(g.claim.id))}: ${o.mahjong ? 'Mahjong is yours!' : 'take it or Pass'}`; }
+    if (isHumanTurn()) {
+      if (jokerPick) return 'Pick the joker swap you want';
+      if (g.turnOptions(0).mahjong) return '🎉 You have Mahjong! Tap Mahjong!';
+      return sel == null ? 'Your turn: tap a tile to discard' : `Tap ${tileName(typeOf(sel))} again to discard it`;
+    }
+    if (g.phase === 'claim') return 'Waiting for calls…';
+    return g.current === 0 ? 'Playing for you…' : `${g.players[g.current].name} is playing…`;
   }
   function helpLineAM() {
     const me = g.players[0], top = AM.closest(me.hand, AM.expsOf(me), 1)[0];
@@ -2755,19 +2805,22 @@ const App = (() => {
   function seg(key, opts, cur, extraCls = '') {
     return `<div class="seg" data-key="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''} ${extraCls ? v : ''}">${l}</button>`).join('')}</div>`;
   }
+  let moreOpen = false;
   function showSetup() {
     $('game').hidden = true; $('setup').hidden = false; $('help').hidden = true;
     const lv = [['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard']];
     const pos = { 1: 'right', 2: 'across', 3: 'left' };
     $('setupIn').innerHTML = `<div class="logo"><div class="tiles">${(S.THEME === 'koi' ? [9, 22, 4, 33, 32] : [31, 32, 33, 27]).map(t => tileT(t)).join('')}</div><h1>${S.THEME === 'koi' ? 'Bizy&rsquo;s Goldfish &amp; Koi Mahjong' : 'Bizy&rsquo;s Mahjong'}</h1><p class="welcome">Welcome back, ${esc(pname())}! 🐟</p><p>${S.rules === 'american' ? 'American rules · ' + esc(AM.CARD.name) : 'Hong Kong-style'} · you vs three computer players</p></div>
-      <div class="sect"><h3>Player</h3><div class="row2"><div class="lab">Your name</div><input id="pName" class="nameIn" maxlength="14" value="${esc(pname())}" autocomplete="off" autocapitalize="words"></div></div>
-      <div class="sect"><h3>Opponents</h3>
-        ${[1, 2, 3].map(s => `<div class="row2"><div class="lab">${S.names[s]}<small>sits ${pos[s]}</small></div>${seg('lv' + s, lv, S.levels[s], 'c')}</div>`).join('')}
-        <div class="row2"><div class="lab">Set all</div>${seg('lvall', lv, S.levels.slice(1).every(l => l === S.levels[1]) ? S.levels[1] : '', 'c')}</div></div>
+      <div class="sect"><div class="row2"><div class="lab">Your name</div><input id="pName" class="nameIn" maxlength="14" value="${esc(pname())}" autocomplete="off" autocapitalize="words"></div>
+        <div class="row2"><div class="lab">Opponents</div>${seg('lvall', lv, S.levels.slice(1).every(l => l === S.levels[1]) ? S.levels[1] : '', 'c')}</div>
+        <div class="row2"><div class="lab">Game length</div>${seg('length', S.rules === 'american' ? [['quick', '4 hands'], ['east', '8 hands'], ['full', '16 hands']] : [['quick', '4 hands'], ['east', 'East round'], ['full', 'East+South']], S.length)}</div></div>
+      <button class="startBtn top" id="bStart">▶ Start game</button>
+      <details class="more" id="moreOpts"${moreOpen ? ' open' : ''}><summary>⚙️ More options ${moreOpen ? '▴' : '▾'}</summary>
+      <div class="sect"><h3>Opponents one by one</h3>
+        ${[1, 2, 3].map(s => `<div class="row2"><div class="lab">${S.names[s]}<small>sits ${pos[s]}</small></div>${seg('lv' + s, lv, S.levels[s], 'c')}</div>`).join('')}</div>
       <div class="sect"><h3>Game</h3>
         <div class="row2"><div class="lab">Rules</div>${seg('rules', [['american', '🇺🇸 American'], ['hk', 'Hong Kong']], S.rules)}</div>
         ${S.rules === 'american' ? `<div class="row2"><div class="lab">Blanks<small>house rule</small></div>${seg('blanks', [[0, 'None'], [4, '4 blanks'], [6, '6 blanks']], S.blanks)}</div>` : ''}
-        <div class="row2"><div class="lab">Length</div>${seg('length', S.rules === 'american' ? [['quick', '4 hands'], ['east', '8 hands'], ['full', '16 hands']] : [['quick', '4 hands'], ['east', 'East round'], ['full', 'East+South']], S.length)}</div>
         <div class="row2"><div class="lab">AI speed</div>${seg('speed', [['normal', 'Normal'], ['fast', 'Fast'], ['turbo', 'Turbo']], S.speed)}</div>
         <div class="row2"><div class="lab">Start points</div>${seg('startPoints', [[500, '500'], [1000, '1000'], [2000, '2000']], S.startPoints)}</div>
         <div class="row2"><div class="lab">Tiles<small>theme</small></div>${seg('THEME', [['koi', '🐟 Goldfish &amp; Koi'], ['classic', '🀄 Classic']], S.THEME)}</div></div>
@@ -2775,9 +2828,10 @@ const App = (() => {
         ${(S.rules === 'american' ? [['hints', 'Top 5 hands panel', 'Closest card hands shown while you play'], ['autoPass', 'Auto-pass calls', 'Skip pung/kong/quint offers (Mahjong still asked)'], ['revealAI', 'Show AI hands', 'Learning / debug view']]
             : [['autoPass', 'Auto-pass claims', 'Skip chow/pung/kong offers (wins still asked)'], ['revealAI', 'Show AI hands', 'Learning / debug view'], ['sevenPairs', 'Seven pairs', 'Allow the special hand'], ['flowers', 'Flowers & seasons', '8 bonus tiles, +1 fan each']])
           .map(([k, l, d]) => `<div class="tog"><div>${l}<small>${d}</small></div><button class="sw ${S[k] ? 'on' : ''}" data-tog="${k}" aria-label="${l}"></button></div>`).join('')}</div>
-      <button class="startBtn" id="bStart">Start game</button>
-      <button class="linkBtn" id="bRules">Rules & scoring</button>${S.rules === 'american' ? '<button class="linkBtn" id="bCard">📋 View the card</button>' : ''}`;
+      </details>
+      <button class="linkBtn" id="bRules">How to play</button>${S.rules === 'american' ? '<button class="linkBtn" id="bCard">📋 View the card</button>' : ''}`;
     const box = $('setupIn');
+    $('moreOpts').addEventListener('toggle', e => { moreOpen = e.target.open; e.target.querySelector('summary').textContent = `⚙️ More options ${moreOpen ? '▴' : '▾'}`; });
     box.querySelectorAll('.seg').forEach(sg => sg.addEventListener('click', e => {
       const b = e.target.closest('button'); if (!b) return;
       const key = sg.dataset.key, v = b.dataset.v;

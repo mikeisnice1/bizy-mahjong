@@ -5,7 +5,7 @@
      in the background when online and used on the next launch/reload (the page reloads by
      itself when an update lands while you are on the setup screen).
    - Only registered when the page is served over http(s); file:// and Capacitor never use it. */
-const VERSION = '30951fc3d88e';
+const VERSION = 'dd1669d3c0de';
 const CACHE = 'bizy-mahjong-' + VERSION;
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon.svg'];
 
