@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  GOLDFISH & KOI MAHJONG - Mahjong Solitaire (Turtle), single-file prototype
+  ============================================================================
+  One self-contained HTML file: inline CSS + JS, no network, no dependencies.
+  Works from file:// on desktop and phone browsers.
+
+  WRAPPING AS A NATIVE APP WITH CAPACITOR (later):
+    1. mkdir mahjong-app && cd mahjong-app && npm init -y
+    2. npm i @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android
+    3. mkdir www && cp /path/to/index.html www/index.html
+    4. npx cap init "Mahjong" com.example.mahjong --web-dir=www
+    5. npx cap add ios   &&   npx cap add android
+    6. npx cap sync      (re-run after every change to www/)
+    7. npx cap open ios  /  npx cap open android   -> build & run
+  The page already uses viewport-fit=cover + env(safe-area-inset-*) so it
+  respects notches / home indicators inside the native WebView.
+
+  ARCHITECTURE (search for the numbered banners in the <script>):
+    1. CONFIG        - rule mode ('path' | 'classic'), turns, seed, etc.
+    2. LAYOUT        - the classic 144-position turtle (x,y in half-tile units, z layer)
+    3. TILE SET      - 36 kinds x 4 = 144: 14 goldfish (side view), 11 koi
+                       (top view, barbels, single tail), 11 farm/pond extras.
+                       Identical-only matching. Art = SVG sprite (section 6).
+    4. RULES ENGINE  - freedom (covered / classic left-right), Onet-style path
+                       search (<= 2 turns), move finder, solvable deal generator
+    5. GAME STATE    - Game class: present[], faces[], moves, history, shuffle
+       (sections 2-5 are pure logic: no DOM access, unit-testable in Node;
+        they live between the ENGINE-START / ENGINE-END markers)
+    6. RENDERING     - DOM tiles, face artwork, responsive fit, path line
+    7. UI / INPUT    - taps, selection, feedback, buttons, overlays
+    8. GAME LOOP     - timer (mm:ss, pauses when app hidden), win / lose checks
+  Debug hook: window.__game  (used by the automated tests).
+  URL overrides for testing: ?rules=classic  ?seed=123
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a3441">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<title>Goldfish &amp; Koi Mahjong</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: radial-gradient(ellipse at 50% 38%, #2a8a8f 0%, #16606c 42%, #0a3441 100%);  /* pond water */
+    color: #f3f0e6;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    touch-action: manipulation;           /* no double-tap zoom => no 300ms click delay */
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+  #app {
+    position: fixed; inset: 0;
+    display: grid;
+    grid-template-columns: 100%;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "hdr" "board" "ftr";
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    grid-area: hdr; display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; padding: 8px 14px; background: rgba(0,0,0,.28);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .brand { font: inherit; font-weight: 800; font-size: 18px; color: #ffe39a; letter-spacing: .2px; white-space: nowrap;
+           background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+  .brand small { display: block; font-size: 10px; font-weight: 600; color: #cfe8dc; opacity: .75; letter-spacing: 1px; text-transform: uppercase; }
+  .stat { display: flex; flex-direction: column; align-items: center; min-width: 54px; }
+  .stat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; opacity: .7; }
+  .stat .val { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #boardWrap { grid-area: board; position: relative; overflow: hidden; min-height: 0;
+    display: flex; align-items: center; justify-content: center; }
+  #board { position: relative; flex: none; }
+  footer { grid-area: ftr; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 8px 10px 10px; }
+  footer button, .ovBtns button {
+    min-height: 54px; border: 0; border-radius: 14px; cursor: pointer;
+    background: linear-gradient(#fbf3da, #e3d3a4); color: #2b2414;
+    font: inherit; font-weight: 700; font-size: 21px; line-height: 1.1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    box-shadow: 0 3px 0 #9c8757, 0 5px 12px rgba(0,0,0,.3);
+    touch-action: manipulation;
+  }
+  footer button span { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; margin-top: 2px; }
+  footer button:active, .ovBtns button:active { transform: translateY(2px); box-shadow: 0 1px 0 #9c8757; }
+  footer button:disabled { opacity: .45; }
+
+  /* Short landscape phones: move stats + buttons to a side column so the board gets the height */
+  @media (orientation: landscape) and (max-height: 560px) {
+    #app { grid-template-columns: minmax(0,1fr) 156px; grid-template-rows: auto minmax(0,1fr);
+           grid-template-areas: "board hdr" "board ftr"; }
+    header { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 4px; padding: 8px;
+             border-bottom: 0; border-left: 1px solid rgba(255,255,255,.08); }
+    .brand { grid-column: 1 / -1; text-align: center; font-size: 17px; }
+    .stat:last-child { grid-column: 1 / -1; }
+    footer { grid-template-columns: 1fr 1fr; align-content: end; background: rgba(0,0,0,.28); padding: 8px; }
+    footer button { min-height: 58px; }
+  }
+
+  /* ---------- tiles ---------- */
+  .tile {
+    position: absolute; border-radius: .13em; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    background: linear-gradient(150deg, #fffef8 0%, #f7f0da 55%, #ebdfbd 100%);
+    /* face bevel + stacked "thickness" (ivory then bamboo-colored back) + drop shadow */
+    box-shadow:
+      inset .025em .025em 0 #fff,
+      inset -.03em -.03em 0 rgba(120,90,30,.20),
+      .035em .035em 0 #e0cf9f,
+      .07em .07em 0 #cdb57c,
+      .1em .1em 0 #3f9a6a,
+      .13em .13em 0 #2c7a51,
+      .14em .16em .22em rgba(0,0,0,.5);
+    transition: transform .14s ease, opacity .2s ease;
+  }
+  /* lower layers slightly darker so the stacking reads clearly */
+  .tile.z0 { filter: brightness(.86) saturate(.95); } .tile.z1 { filter: brightness(.91); }
+  .tile.z2 { filter: brightness(.95); } .tile.z3 { filter: brightness(.98); }
+  .tile.sel, .tile.hint { filter: none; }
+  .tile.t-koi { background: linear-gradient(150deg, #f7fcff 0%, #e9f4f8 55%, #d6e7ee 100%); }   /* koi: faint water tint */
+  .tile.t-pond { background: linear-gradient(150deg, #fbfff4 0%, #eff6e2 55%, #dfe9c9 100%); }  /* pond extras: faint reed tint */
+  .tile.sel {
+    background: linear-gradient(150deg, #fffbe0 0%, #ffe987 60%, #ffd84d 100%);
+    transform: translate(-.03em, -.03em);
+    box-shadow:
+      inset 0 0 0 .05em #e39a00,
+      .035em .035em 0 #e0cf9f, .07em .07em 0 #cdb57c, .1em .1em 0 #3f9a6a, .13em .13em 0 #2c7a51,
+      0 0 .25em .06em rgba(255,200,40,.9);
+  }
+  .tile.hint { animation: hintPulse .55s ease-in-out 4; }
+  @keyframes hintPulse { 50% { background: linear-gradient(150deg,#eaffff,#9ff0ff); } }
+  .tile.bad { animation: shake .38s ease; }
+  .tile.bad::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: rgba(230,40,40,.35); animation: fadeOut .45s ease forwards; }
+  @keyframes shake { 0%,100% { translate: 0 0; } 20% { translate: -.07em 0; } 40% { translate: .07em 0; }
+                     60% { translate: -.05em 0; } 80% { translate: .04em 0; } }
+  @keyframes fadeOut { to { opacity: 0; } }
+  .tile.gone { opacity: 0; transform: scale(.55) rotate(8deg); pointer-events: none; }
+  .tile.removed { display: none; }
+
+  /* ---------- faces (all sizes in em = tile width) ---------- */
+  .f { position: relative; width: 100%; height: 100%; pointer-events: none; line-height: 1;
+       display: flex; align-items: center; justify-content: center; }
+  .art svg.fish { width: 100%; height: auto; }
+  .art svg.koi { height: 94%; width: auto; }
+  .art em { font-style: normal; font-size: .72em;
+            font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif; }
+
+  /* fish guide / tile sheet */
+  #guide { position: fixed; inset: 0; z-index: 9500; overflow: auto; -webkit-overflow-scrolling: touch;
+           background: linear-gradient(#0f4b5a, #082c38); padding: calc(10px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom)); }
+  #guide[hidden] { display: none; }
+  #guide h3 { margin: 10px 2px 6px; font-size: 14px; letter-spacing: 1.2px; text-transform: uppercase; color: #ffe39a; }
+  #guide .gtop { display: flex; justify-content: space-between; align-items: center; }
+  #guide .gtop h2 { margin: 0; font-size: 20px; color: #fff3c9; }
+  #guide .gtop button { min-height: 40px; padding: 0 16px; border: 0; border-radius: 12px; font: inherit; font-weight: 700;
+           background: linear-gradient(#fbf3da, #e3d3a4); color: #2b2414; }
+  .ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 10px 6px; }
+  .gitem { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .gitem .tile { position: relative; width: 50px; height: 64px; font-size: 50px; cursor: default; }
+  .gitem span { font-size: 10.5px; line-height: 1.15; text-align: center; color: #e6f3ef; }
+  #pathSvg { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 5000; overflow: visible; }
+  #pathSvg polyline { fill: none; stroke: #ffd54a; stroke-linecap: round; stroke-linejoin: round;
+                      filter: drop-shadow(0 0 3px rgba(255,160,0,.9)); transition: opacity .35s ease; }
+
+  #toast { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+           background: rgba(0,0,0,.72); color: #fff; padding: 7px 14px; border-radius: 20px; font-size: 14px;
+           opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 6000; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+
+  #overlay { position: fixed; inset: 0; z-index: 9000; background: rgba(4,20,14,.66);
+             display: flex; align-items: center; justify-content: center; padding: 20px;
+             -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+  #overlay[hidden] { display: none; }
+  .card { width: min(360px, 100%); background: linear-gradient(160deg, #fffdf4, #efe3c1); color: #2b2414;
+          border-radius: 20px; padding: 22px 20px 18px; text-align: center; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+  .card h2 { margin: 0 0 6px; font-size: 26px; }
+  .card p { margin: 0 0 16px; font-size: 16px; line-height: 1.45; }
+  .ovBtns { display: grid; gap: 10px; grid-auto-flow: column; grid-auto-columns: 1fr; }
+  .ovBtns button { font-size: 16px; padding: 0 10px; }
+  .ovBtns button.primary { background: linear-gradient(#ffe27a, #f1b92e); box-shadow: 0 3px 0 #a87a10, 0 5px 12px rgba(0,0,0,.3); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="hdr">
+    <button class="brand" id="btnGuide" aria-label="Fish guide">Goldfish &amp; Koi<small id="ruleLbl">Mahjong · path rule</small></button>
+    <div class="stat"><span class="lbl">Time</span><span class="val" id="time">00:00</span></div>
+    <div class="stat"><span class="lbl">Moves</span><span class="val" id="moves">0</span></div>
+    <div class="stat"><span class="lbl">Tiles</span><span class="val" id="left">144</span></div>
+  </header>
+  <main id="boardWrap"><div id="board"></div><div id="toast"></div></main>
+  <footer id="ftr">
+    <button id="btnHint" aria-label="Hint">💡<span>Hint</span></button>
+    <button id="btnUndo" aria-label="Undo">↩️<span>Undo</span></button>
+    <button id="btnShuffle" aria-label="Shuffle">🔀<span>Shuffle</span></button>
+    <button id="btnNew" aria-label="New game">🔄<span>New</span></button>
+  </footer>
+</div>
+<div id="guide" hidden>
+  <div class="gtop"><h2>🐟 Fish guide</h2><button id="btnGuideClose">Close</button></div>
+  <div id="guideBody"></div>
+</div>
+<div id="overlay" hidden>
+  <div class="card" role="dialog" aria-modal="true">
+    <h2 id="ovTitle"></h2><p id="ovText"></p><div class="ovBtns" id="ovBtns"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ==========================================================================
+   1. CONFIG
+   ========================================================================== */
+const CONFIG = {
+  // 'path'    = what Mike asked for: two identical, uncovered tiles joined by a
+  //             clear Onet/Shisen-sho path with at most MAX_TURNS corners.
+  // 'classic' = traditional Mahjong Solitaire: identical tiles that are uncovered
+  //             AND have a free left or right side (no path needed).
+  RULES: 'path',
+  MAX_TURNS: 2,          // 2 corners = 3 straight segments
+  SHOW_PATH: true,       // flash the connecting line on a path-rule match
+  SEED: null,            // number => reproducible deals (null = random)
+  DEAL_ATTEMPTS: 80,     // retries for the reverse-construction deal generator
+  // Shuffle is FREE (no time/move penalty) - it's a relaxed prototype. It is
+  // counted and shown on the win screen. Set a number of seconds to penalise.
+  SHUFFLE_PENALTY_SEC: 0,
+};
+
+/*ENGINE-START*/
+/* ==========================================================================
+   2-5. PURE GAME ENGINE (no DOM) - layout, tile set, rules, state
+   ========================================================================== */
+const MahjongEngine = (() => {
+
+  /* ---------- small utils: seeded RNG + shuffle ---------- */
+  function makeRng(seed) {
+    let s = (seed == null ? (Math.random() * 2 ** 32) : seed) >>> 0;
+    return function mulberry32() {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function shuffleInPlace(a, rng) {
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+
+  /* ======================================================================
+     2. LAYOUT - classic turtle, 144 positions.
+     Coordinates are in HALF-tile units: a tile at (x,y) covers the 2x2 cells
+     x..x+1, y..y+1. This lets the wing tiles and the top tile sit "between"
+     rows, exactly like the real turtle. z = layer (0 bottom .. 4 top).
+     ====================================================================== */
+  function turtleLayout() {
+    const P = [];
+    const row = (y, x0, x1, z) => { for (let x = x0; x <= x1; x += 2) P.push({ x, y, z }); };
+    // Layer 0: 87 tiles (8 rows of 12/8/10/12/12/10/8/12 + 3 wing tiles)
+    row(0, 2, 24, 0); row(2, 6, 20, 0); row(4, 4, 22, 0); row(6, 2, 24, 0);
+    row(8, 2, 24, 0); row(10, 4, 22, 0); row(12, 6, 20, 0); row(14, 2, 24, 0);
+    P.push({ x: 0, y: 7, z: 0 }, { x: 26, y: 7, z: 0 }, { x: 28, y: 7, z: 0 }); // left wing, right wing x2
+    for (let y = 2; y <= 12; y += 2) row(y, 8, 18, 1);   // Layer 1: 6x6 = 36
+    for (let y = 4; y <= 10; y += 2) row(y, 10, 16, 2);  // Layer 2: 4x4 = 16
+    for (let y = 6; y <= 8; y += 2) row(y, 12, 14, 3);   // Layer 3: 2x2 = 4
+    P.push({ x: 13, y: 7, z: 4 });                        // Layer 4: the top tile = 1
+    return P;                                             // total 144
+  }
+
+  /* Precompute neighbourhood relations once per layout. */
+  function buildGeometry(P) {
+    const n = P.length, PAD = 2;              // PAD = one full tile of empty border (in half units)
+    let maxX = 0, maxY = 0, maxZ = 0;
+    for (const p of P) { maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); maxZ = Math.max(maxZ, p.z); }
+    const covers = [], left = [], right = [];
+    for (let i = 0; i < n; i++) {
+      const p = P[i], c = [], l = [], r = [];
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const q = P[j], ovY = Math.abs(q.y - p.y) < 2;
+        if (q.z > p.z && Math.abs(q.x - p.x) < 2 && ovY) c.push(j);          // q lies (partly) on top of p
+        if (q.z === p.z && ovY && q.x === p.x - 2) l.push(j);                 // touching on the left
+        if (q.z === p.z && ovY && q.x === p.x + 2) r.push(j);                 // touching on the right
+      }
+      covers.push(c); left.push(l); right.push(r);
+    }
+    // Path grid = bounding box extended by one tile (PAD half-cells) on every side.
+    const GW = maxX + 2 + 2 * PAD, GH = maxY + 2 + 2 * PAD;
+    return { P, n, PAD, GW, GH, maxX, maxY, maxZ, covers, left, right };
+  }
+
+  /* ======================================================================
+     3. TILE SET - "Goldfish & Koi": 36 face kinds x 4 copies = 144 tiles.
+     Matching is IDENTICAL-ONLY (key = id). Categories only drive artwork
+     and a subtle tile tint: gold = goldfish (side view), koi (top view),
+     pond = goldfish-farm / pond extras.
+     ====================================================================== */
+  const FACE_LIST = [
+    // --- 14 goldfish varieties (round bodies, double/fancy tails, side view)
+    ['g-orange', 'Orange Goldfish', 'gold'], ['g-comet', 'Comet', 'gold'],
+    ['g-calico', 'Calico', 'gold'], ['g-moor', 'Black Moor', 'gold'],
+    ['g-panda', 'Panda Moor', 'gold'], ['g-redcap', 'Red Cap Oranda', 'gold'],
+    ['g-blue', 'Blue Oranda', 'gold'], ['g-choc', 'Chocolate Oranda', 'gold'],
+    ['g-ryukin', 'Ryukin', 'gold'], ['g-bubble', 'Bubble Eye', 'gold'],
+    ['g-celestial', 'Celestial Eye', 'gold'], ['g-lionhead', 'Lionhead', 'gold'],
+    ['g-pearl', 'Pearlscale', 'gold'], ['g-lilac', 'Lilac Veiltail', 'gold'],
+    // --- 11 koi varieties (long torpedo body, barbels, single tail, top view)
+    ['k-kohaku', 'Kohaku', 'koi'], ['k-tancho', 'Tancho', 'koi'],
+    ['k-showa', 'Showa', 'koi'], ['k-sanke', 'Sanke', 'koi'],
+    ['k-ogon', 'Ogon', 'koi'], ['k-platinum', 'White Koi (Platinum Ogon)', 'koi'],
+    ['k-asagi', 'Asagi', 'koi'], ['k-chagoi', 'Chagoi', 'koi'],
+    ['k-shiro', 'Shiro Utsuri', 'koi'], ['k-ki', 'Ki Utsuri', 'koi'],
+    ['k-kujaku', 'Kujaku', 'koi'],
+    // --- 11 farm & pond extras
+    ['p-lilypad', 'Lily Pad', 'pond'], ['p-lotus', 'Lotus', 'pond'],
+    ['p-food', 'Fish Food', 'pond'], ['p-net', 'Fish Net', 'pond'],
+    ['p-bubbles', 'Bubbles', 'pond'], ['p-eggs', 'Fish Eggs', 'pond'],
+    ['p-plant', 'Water Plant', 'pond'], ['p-bag', 'Fish Bag', 'pond'],
+    ['p-frog', 'Frog', 'pond'], ['p-snail', 'Pond Snail', 'pond'],
+    ['p-duck', 'Duck', 'pond'],
+  ];
+  const FACES = {};
+  for (const [id, name, cat] of FACE_LIST) FACES[id] = { id, name, cat, key: id, copies: 4 };
+  function fullTileSet() {
+    const out = [];
+    for (const f of Object.values(FACES)) for (let k = 0; k < f.copies; k++) out.push(f.id);
+    return out; // 36 x 4 = 144
+  }
+  /* Group face ids into matching pairs (needs an even count per key). */
+  function pairUp(faceIds, rng) {
+    const groups = {};
+    for (const id of faceIds) (groups[FACES[id].key] ||= []).push(id);
+    const pairs = [];
+    for (const g of Object.values(groups)) {
+      if (g.length % 2) throw new Error('odd face group');
+      shuffleInPlace(g, rng);
+      for (let k = 0; k < g.length; k += 2) pairs.push([g[k], g[k + 1]]);
+    }
+    return shuffleInPlace(pairs, rng);
+  }
+
+  /* ======================================================================
+     4. RULES ENGINE
+     All functions take (G = geometry, present = Uint8Array 1/0 per position)
+     so they work both on the live game and on hypothetical states used by
+     the deal generator.
+     ====================================================================== */
+  function isCovered(G, present, i) {
+    for (const j of G.covers[i]) if (present[j]) return true;
+    return false;
+  }
+  function isFreeClassic(G, present, i) {
+    if (isCovered(G, present, i)) return false;
+    const l = G.left[i].some(j => present[j]), r = G.right[i].some(j => present[j]);
+    return !l || !r;
+  }
+  /* 'path' mode: selectable = not covered by anything on a higher layer.
+     (Being boxed in sideways is fine - the path search decides reachability.) */
+  function isFree(G, rules, present, i) {
+    return rules === 'classic' ? isFreeClassic(G, present, i) : !isCovered(G, present, i);
+  }
+
+  /* ----------------------------------------------------------------------
+     PATH SEARCH (Onet / Shisen-sho connection), layered interpretation:
+     * The path travels at height h = max(zA, zB) (the higher of the two tiles).
+       Every remaining tile with z >= h is an obstacle; lower tiles are passed
+       over. For two tiles on the same layer this is simply "that layer's grid".
+     * Think of the path as a tile-sized 2x2 "ghost" sliding in half-tile steps
+       from A's slot to B's slot along at most 3 straight segments (<= 2 turns).
+       Every slot it touches must be clear of obstacles (A and B themselves
+       don't count). Using the ghost footprint makes the half-offset wing tiles
+       and the top tile behave naturally (no squeezing through half gaps).
+     * The ghost may leave the board: the grid is the layout's bounding box
+       extended by one full tile on each side, so paths can run around the edge.
+     * 0-1 BFS over (cell, direction) with cost = number of turns.
+     Returns { h, turns, points:[{x,y}...] } (points = ghost centres, half units)
+     or null.
+     ---------------------------------------------------------------------- */
+  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // right, down, left, up  (d^2 = opposite)
+  function findPath(G, present, a, b, maxTurns = 2) {
+    const A = G.P[a], B = G.P[b], h = Math.max(A.z, B.z), { GW, GH, PAD } = G;
+    const blocked = new Uint8Array(GW * GH);
+    for (let k = 0; k < G.n; k++) {
+      if (!present[k] || k === a || k === b) continue;
+      const p = G.P[k]; if (p.z < h) continue;
+      const c = (p.y + PAD) * GW + p.x + PAD;
+      blocked[c] = blocked[c + 1] = blocked[c + GW] = blocked[c + GW + 1] = 1;
+    }
+    const ghostFits = (x, y) => {
+      if (x < 0 || y < 0 || x > GW - 2 || y > GH - 2) return false;
+      const c = y * GW + x;
+      return !blocked[c] && !blocked[c + 1] && !blocked[c + GW] && !blocked[c + GW + 1];
+    };
+    const sx = A.x + PAD, sy = A.y + PAD, gx = B.x + PAD, gy = B.y + PAD;
+    const cost = new Uint8Array(GW * GH * 4).fill(255);
+    const parent = new Int32Array(GW * GH * 4).fill(-1);
+
+    const reconstruct = (s) => {
+      const pts = [];
+      while (s !== -1) {
+        const c = s >> 2, x = c % GW, y = (c / GW) | 0, last = pts[pts.length - 1];
+        if (!last || last[0] !== x || last[1] !== y) pts.push([x, y]);
+        s = parent[s];
+      }
+      pts.reverse();
+      const out = [pts[0]];                         // keep only corners
+      for (let i = 1; i < pts.length - 1; i++) {
+        const [ax, ay] = out[out.length - 1], [bx, by] = pts[i], [cx, cy] = pts[i + 1];
+        if ((bx - ax) * (cy - by) - (by - ay) * (cx - bx) !== 0) out.push(pts[i]);
+      }
+      out.push(pts[pts.length - 1]);
+      return { h, turns: out.length - 2, points: out.map(([x, y]) => ({ x: x - PAD + 1, y: y - PAD + 1 })) };
+    };
+
+    let cur = [];
+    for (let d = 0; d < 4; d++) { const s = ((sy * GW + sx) << 2) | d; cost[s] = 0; cur.push(s); }
+    for (let t = 0; t <= maxTurns; t++) {
+      const next = [];
+      for (let qi = 0; qi < cur.length; qi++) {
+        const s = cur[qi];
+        if (cost[s] !== t) continue;                 // already settled at a cheaper level
+        const d = s & 3, cell = s >> 2, x = cell % GW, y = (cell / GW) | 0;
+        const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
+        if (ghostFits(nx, ny)) {                     // go straight: same cost
+          const ns = ((ny * GW + nx) << 2) | d;
+          if (cost[ns] > t) {
+            cost[ns] = t; parent[ns] = s;
+            if (nx === gx && ny === gy) return reconstruct(ns);
+            cur.push(ns);
+          }
+        }
+        if (t < maxTurns) for (let d2 = 0; d2 < 4; d2++) {   // turn 90 degrees: +1
+          if (d2 === d || d2 === (d ^ 2)) continue;
+          const ts = (cell << 2) | d2;
+          if (cost[ts] > t + 1) { cost[ts] = t + 1; parent[ts] = s; next.push(ts); }
+        }
+      }
+      cur = next;
+    }
+    return null;
+  }
+
+  /* Can positions a and b be removed together (ignoring faces)? */
+  function pairRemovable(G, rules, present, a, b, maxTurns) {
+    if (a === b || !present[a] || !present[b]) return null;
+    if (!isFree(G, rules, present, a) || !isFree(G, rules, present, b)) return null;
+    if (rules === 'classic') return { h: Math.max(G.P[a].z, G.P[b].z), turns: -1, points: null };
+    return findPath(G, present, a, b, maxTurns);
+  }
+
+  /* ----------------------------------------------------------------------
+     SOLVABLE DEAL GENERATOR (reverse construction).
+     Freedom and paths depend only on WHICH positions are occupied, never on
+     faces. So we first "play" the empty layout: repeatedly remove a random
+     pair of positions that is legal under the active rule (path or classic),
+     recording the order. Then we pour matching face pairs into those recorded
+     position pairs. Replaying the recorded order is a guaranteed solution -
+     for BOTH rule modes. Random dead ends during construction => retry.
+     Used for new deals and for Shuffle (on the remaining positions).
+     ---------------------------------------------------------------------- */
+  function removalOrder(G, rules, presentInit, rng, attempts, maxTurns) {
+    for (let at = 0; at < attempts; at++) {
+      const pres = presentInit.slice();
+      let left = pres.reduce((s, v) => s + v, 0);
+      const order = [];
+      while (left > 0) {
+        const free = [];
+        for (let i = 0; i < G.n; i++) if (pres[i] && isFree(G, rules, pres, i)) free.push(i);
+        shuffleInPlace(free, rng);
+        // Mild bias: try higher tiles first (70% of the time). Digging the
+        // pyramid down early keeps the structure from dead-ending.
+        if (rng() < 0.7) free.sort((p, q) => G.P[q].z - G.P[p].z);
+        let found = null;
+        search: for (let x = 0; x < free.length; x++)
+          for (let y = x + 1; y < free.length; y++)
+            if (pairRemovable(G, rules, pres, free[x], free[y], maxTurns)) { found = [free[x], free[y]]; break search; }
+        if (!found) break;
+        pres[found[0]] = pres[found[1]] = 0; left -= 2; order.push(found);
+      }
+      if (left === 0) return order;
+    }
+    return null;
+  }
+
+  /* ======================================================================
+     5. GAME STATE
+     ====================================================================== */
+  class Game {
+    constructor(opts = {}) {
+      this.rules = opts.rules === 'classic' ? 'classic' : 'path';
+      this.maxTurns = opts.maxTurns ?? 2;
+      this.attempts = opts.attempts ?? 80;
+      this.rng = makeRng(opts.seed);
+      this.G = buildGeometry(opts.layout || turtleLayout());
+      this.faces = new Array(this.G.n).fill(null);
+      this.present = new Uint8Array(this.G.n);
+      this.newGame();
+    }
+    newGame() {
+      this.present.fill(1);
+      this.solvable = this._pour(pairUp(fullTileSet(), this.rng));
+      this.moves = 0; this.shuffles = 0; this.history = [];
+    }
+    /* Put face pairs onto the present positions (solvable if possible). */
+    _pour(pairs) {
+      const order = removalOrder(this.G, this.rules, this.present, this.rng, this.attempts, this.maxTurns);
+      this.solution = order;   // a known winning sequence (debug / tests)
+      if (order) { order.forEach(([a, b], k) => { this.faces[a] = pairs[k][0]; this.faces[b] = pairs[k][1]; }); return true; }
+      const idx = this.positions(), flat = shuffleInPlace(pairs.flat(), this.rng); // fallback: plain random
+      idx.forEach((p, k) => { this.faces[p] = flat[k]; });
+      return false;
+    }
+    positions() { const r = []; for (let i = 0; i < this.G.n; i++) if (this.present[i]) r.push(i); return r; }
+    remaining() { return this.positions().length; }
+    key(i) { return FACES[this.faces[i]].key; }
+    isFree(i) { return !!this.present[i] && isFree(this.G, this.rules, this.present, i); }
+    /* Full check incl. faces. reason: blocked | same | nomatch | nopath */
+    canMatch(a, b) {
+      if (!this.isFree(a) || !this.isFree(b)) return { ok: false, reason: 'blocked' };
+      if (a === b) return { ok: false, reason: 'same' };
+      if (this.key(a) !== this.key(b)) return { ok: false, reason: 'nomatch' };
+      const path = pairRemovable(this.G, this.rules, this.present, a, b, this.maxTurns);
+      return path ? { ok: true, path } : { ok: false, reason: 'nopath' };
+    }
+    remove(a, b) {
+      const r = this.canMatch(a, b);
+      if (!r.ok) return r;
+      this.present[a] = this.present[b] = 0;
+      this.moves++; this.history.push([a, b]);
+      return r;
+    }
+    undo() {
+      const last = this.history.pop(); if (!last) return null;
+      this.present[last[0]] = this.present[last[1]] = 1; this.moves--;
+      return last;
+    }
+    /* Reshuffle the remaining faces over the remaining positions (solvable if possible). */
+    shuffle() {
+      const pos = this.positions();
+      const ok = this._pour(pairUp(pos.map(i => this.faces[i]), this.rng));
+      this.shuffles++; this.history = [];   // undo across a shuffle makes no sense
+      return ok;
+    }
+    /* All legal moves (or up to `limit`), in random order. */
+    findMoves(limit = Infinity) {
+      const groups = {};
+      for (const i of this.positions()) if (this.isFree(i)) (groups[this.key(i)] ||= []).push(i);
+      const cands = [];
+      for (const g of Object.values(groups)) for (let x = 0; x < g.length; x++) for (let y = x + 1; y < g.length; y++) cands.push([g[x], g[y]]);
+      shuffleInPlace(cands, this.rng);
+      const out = [];
+      for (const [a, b] of cands) {
+        const path = pairRemovable(this.G, this.rules, this.present, a, b, this.maxTurns);
+        if (path) { out.push([a, b, path]); if (out.length >= limit) break; }
+      }
+      return out;
+    }
+    hint() { return this.findMoves(1)[0] || null; }
+    hasMoves() { return this.findMoves(1).length > 0; }
+    isWon() { return this.remaining() === 0; }
+  }
+
+  return { Game, FACES, FACE_LIST, turtleLayout, buildGeometry, findPath, isCovered, isFree, removalOrder, makeRng, fullTileSet };
+})();
+/*ENGINE-END*/
+
+/* ==========================================================================
+   6. RENDERING  (DOM only reads game state; never changes rules)
+   ========================================================================== */
+const Renderer = (() => {
+  /* ---------- FACE ARTWORK --------------------------------------------------
+     Every face is an SVG <symbol> in one hidden sprite (built once at boot);
+     tiles just <use> it. Goldfish: side view, egg/round body, fancy double
+     tails, wens, telescope/bubble eyes. Koi: top view, long torpedo body,
+     barbels, pectoral fins, single tail. Frog/snail/duck use emoji.
+     ------------------------------------------------------------------------ */
+  const OUT = 'rgba(60,32,14,.8)';
+  function goldfish(id, o) {                       // viewBox 0 0 100 80, facing left
+    const [cx, cy, rx, ry] = { egg: [44, 40, 27, 19], round: [46, 40, 23, 22], slim: [40, 40, 28, 12], hump: [44, 43, 26, 18] }[o.shape || 'egg'];
+    const S = o.stroke || OUT, fin = o.fin || o.body, tx = cx + rx - 5, top = o.shape === 'hump' ? cy - ry - 7 : cy - ry;
+    const bodyD = o.shape === 'hump'
+      ? `M${cx - rx},${cy + 2} C${cx - rx},${cy - 10} ${cx - 12},${cy - ry - 10} ${cx + 4},${cy - ry - 8} C${cx + 18},${cy - ry - 6} ${cx + rx},${cy - 8} ${cx + rx},${cy + 2} C${cx + rx},${cy + ry} ${cx - rx + 6},${cy + ry} ${cx - rx},${cy + 2}Z`
+      : `M${cx - rx},${cy} a${rx},${ry} 0 1,0 ${2 * rx},0 a${rx},${ry} 0 1,0 ${-2 * rx},0Z`;
+    const tails = {
+      fan: `M${tx},${cy} C${tx + 8},${cy - 18} ${tx + 24},${cy - 30} ${tx + 32},${cy - 26} C${tx + 28},${cy - 14} ${tx + 22},${cy - 6} ${tx + 18},${cy} C${tx + 22},${cy + 6} ${tx + 28},${cy + 14} ${tx + 32},${cy + 26} C${tx + 24},${cy + 30} ${tx + 8},${cy + 18} ${tx},${cy}Z`,
+      fork: `M${tx},${cy} C${tx + 8},${cy - 6} ${tx + 20},${cy - 18} ${tx + 34},${cy - 24} L${tx + 22},${cy} L${tx + 34},${cy + 24} C${tx + 20},${cy + 18} ${tx + 8},${cy + 6} ${tx},${cy}Z`,
+      veil: `M${tx},${cy - 3} C${tx + 14},${cy - 22} ${tx + 32},${cy - 16} ${tx + 34},${cy + 6} C${tx + 36},${cy + 26} ${tx + 24},${cy + 37} ${tx + 8},${cy + 33} C${tx + 16},${cy + 22} ${tx + 12},${cy + 10} ${tx},${cy + 4}Z`,
+    };
+    const tailD = tails[o.tail || 'fan'];
+    const clip = `c-${id}`;
+    let s = `<clipPath id="${clip}"><path d="${bodyD}"/></clipPath>`;
+    s += `<path d="${tailD}" fill="${o.tailC || fin}" stroke="${S}" stroke-width="1.3" stroke-linejoin="round"/>`;
+    s += `<path d="M${tx + 4},${cy} L${tx + 26},${cy - 20} M${tx + 4},${cy} L${tx + 26},${cy + 20} M${tx + 4},${cy} L${tx + 20},${cy - 8} M${tx + 4},${cy} L${tx + 20},${cy + 8}" stroke="rgba(0,0,0,.14)" stroke-width="1"/>`;
+    if (o.tailSpots) s += o.tailSpots;
+    if (o.dorsal !== false) s += `<path d="M${cx - 10},${top + 3} C${cx - 4},${top - 12} ${cx + 10},${top - 12} ${cx + 18},${top + 5}Z" fill="${fin}" stroke="${S}" stroke-width="1.2"/>`;
+    s += `<path d="M${cx - 4},${cy + ry - 3} C${cx - 2},${cy + ry + 9} ${cx + 6},${cy + ry + 10} ${cx + 8},${cy + ry - 2}Z" fill="${fin}" stroke="${S}" stroke-width="1.1"/>`;
+    s += `<path d="M${cx + 11},${cy + ry - 5} C${cx + 15},${cy + ry + 6} ${cx + 21},${cy + ry + 5} ${cx + 21},${cy + ry - 9}Z" fill="${fin}" stroke="${S}" stroke-width="1.1"/>`;
+    s += `<path d="${bodyD}" fill="${o.body}"/>`;
+    s += `<g clip-path="url(#${clip})">`;
+    if (o.belly) s += `<ellipse cx="${cx}" cy="${cy + ry * .75}" rx="${rx * 1.1}" ry="${ry * .55}" fill="${o.belly}"/>`;
+    if (o.spots) for (const [x, y, r, c] of o.spots) s += `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}"/>`;
+    if (o.pearl) for (let x = cx - rx; x < cx + rx; x += 6) for (let y = cy - ry; y < cy + ry; y += 5.5)
+      s += `<circle cx="${x + ((y / 5.5) % 2 ? 3 : 0)}" cy="${y}" r="1.5" fill="rgba(255,255,255,.8)"/>`;
+    s += `<ellipse cx="${cx - 4}" cy="${cy - ry * .5}" rx="${rx * .6}" ry="${ry * .22}" fill="#fff" opacity=".28"/></g>`;
+    s += `<path d="${bodyD}" fill="none" stroke="${S}" stroke-width="1.5"/>`;
+    s += `<ellipse cx="${cx - rx + 17}" cy="${cy + 8}" rx="6.5" ry="3.4" transform="rotate(28 ${cx - rx + 17} ${cy + 8})" fill="${fin}" stroke="${S}" stroke-width="1" opacity=".95"/>`;
+    const hx = cx - rx + 9;
+    if (o.wen === 'full') {             // lionhead: raspberry hood over the whole head
+      for (const [x, y, r] of [[hx - 1, cy - 9, 8], [hx + 7, cy - 14, 7], [hx - 3, cy + 3, 6.5], [hx + 7, cy - 3, 6.5], [hx + 13, cy - 9, 5.5], [hx + 3, cy + 9, 5]])
+        s += `<circle cx="${x}" cy="${y}" r="${r}" fill="${o.wenC}" stroke="${S}" stroke-width="1"/><circle cx="${x - r * .3}" cy="${y - r * .35}" r="${r * .3}" fill="#fff" opacity=".35"/>`;
+    } else if (o.wen) {                 // oranda cap on top of the head
+      for (const [x, y, r] of [[hx - 2, cy - ry + 9, 6], [hx + 5, cy - ry + 4, 7.5], [hx + 13, cy - ry + 3, 6], [hx + 18, cy - ry + 5, 4.2]])
+        s += `<circle cx="${x}" cy="${y}" r="${r}" fill="${o.wenC}" stroke="${S}" stroke-width="1"/><circle cx="${x - r * .3}" cy="${y - r * .35}" r="${r * .3}" fill="#fff" opacity=".35"/>`;
+    }
+    const eye = (x, y, r, dy = 0) => `<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" stroke="${S}" stroke-width=".8"/><circle cx="${x - .6}" cy="${y + dy}" r="${r * .58}" fill="#111"/><circle cx="${x - 1.3}" cy="${y + dy - 1}" r="${r * .2}" fill="#fff"/>`;
+    if (o.eye === 'tele') s += `<circle cx="${hx - 3}" cy="${cy - 6}" r="7.8" fill="${o.eyeC || '#222'}" stroke="${o.eyeS || '#999'}" stroke-width="1.3"/><circle cx="${hx - 4}" cy="${cy - 6}" r="4.6" fill="#050505"/><circle cx="${hx - 5.6}" cy="${cy - 8}" r="1.7" fill="#fff"/>`;
+    else if (o.eye === 'bubble') s += `<ellipse cx="${hx + 1}" cy="${cy + 7}" rx="10" ry="8.5" fill="rgba(185,225,255,.92)" stroke="#4d8cc8" stroke-width="1.3"/><ellipse cx="${hx - 2}" cy="${cy + 4}" rx="3" ry="2" fill="#fff" opacity=".85"/>` + eye(hx + 1, cy - 7, 4);
+    else if (o.eye === 'up') s += `<circle cx="${hx + 3}" cy="${cy - ry + 2}" r="5" fill="${o.body}" stroke="${S}" stroke-width="1"/>` + eye(hx + 3, cy - ry + 1, 3.8, -1.4);
+    else if (o.wen === 'full') s += eye(hx + 3, cy - 1, 3);
+    else s += eye(hx, o.wen ? cy - 2 : cy - 5, 4.2);
+    s += `<path d="M${cx - rx + 1},${cy + 3} q2,1.5 4,0" fill="none" stroke="${S}" stroke-width="1.2"/>`;
+    return { vb: '13 5 89 70', svg: s };
+  }
+
+  function koi(id, o) {                            // viewBox 0 0 60 100, head up (seen from above)
+    const body = 'M30,4 C39,4 43,15 43,29 C43,46 38,64 33.5,78 L26.5,78 C22,64 17,46 17,29 C17,15 21,4 30,4Z';
+    const fin = o.fin || 'rgba(255,255,255,.92)', clip = `c-${id}`;
+    let s = `<clipPath id="${clip}"><path d="${body}"/></clipPath>`;
+    if (o.metal) s += `<linearGradient id="m-${id}" x1="0" x2="1"><stop offset="0" stop-color="${o.metal[0]}"/><stop offset=".45" stop-color="${o.metal[1]}"/><stop offset=".55" stop-color="${o.metal[2]}"/><stop offset="1" stop-color="${o.metal[0]}"/></linearGradient>`;
+    s += `<linearGradient id="r-${id}" x1="0" x2="1"><stop offset="0" stop-color="#000" stop-opacity=".28"/><stop offset=".3" stop-color="#000" stop-opacity="0"/><stop offset=".7" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".28"/></linearGradient>`;
+    if (o.net) s += `<pattern id="n-${id}" width="5" height="4.4" patternUnits="userSpaceOnUse"><path d="M0,4.4 Q2.5,.4 5,4.4" fill="none" stroke="${o.net}" stroke-width=".85"/></pattern>`;
+    const fl = 'M18.5,27 C9,28 3,37 5,45 C11,44 16,39 19.5,35Z', fr = 'M41.5,27 C51,28 57,37 55,45 C49,44 44,39 40.5,35Z';
+    const fins = `<path d="${fl}"/><path d="${fr}"/><path d="M22,56 C17,60 16,65 18,67 C21,65 23,61 24,59Z"/><path d="M38,56 C43,60 44,65 42,67 C39,65 37,61 36,59Z"/>`;
+    s += `<g fill="${fin}" stroke="${OUT}" stroke-width=".9">${fins}<path d="M27,75 C20,83 13,91 14,98 C21,97 27,92 30,87 C33,92 39,97 46,98 C47,91 40,83 33,75Z" fill="${o.tailC || fin}"/></g>`;
+    if (o.motoguro) s += `<g fill="#151515"><ellipse cx="17" cy="32" rx="3.2" ry="4.5"/><ellipse cx="43" cy="32" rx="3.2" ry="4.5"/></g>`;
+    if (o.finRed) s += `<g fill="#d9471f" opacity=".85"><ellipse cx="16.5" cy="32" rx="3.2" ry="4.2"/><ellipse cx="43.5" cy="32" rx="3.2" ry="4.2"/></g>`;
+    s += `<path d="M20,89 L27,80 M40,89 L33,80 M24,95 L29,84 M36,95 L31,84" stroke="rgba(0,0,0,.14)" stroke-width=".8"/>`;
+    s += `<path d="${body}" fill="${o.metal ? `url(#m-${id})` : o.base}"/><g clip-path="url(#${clip})">${o.patches || ''}`;
+    if (o.net) s += `<rect x="0" y="0" width="60" height="100" fill="url(#n-${id})"/>`;
+    s += `<rect x="0" y="0" width="60" height="100" fill="url(#r-${id})"/><path d="M30,24 L30,62" stroke="rgba(0,0,0,.2)" stroke-width="2.2" stroke-linecap="round"/>`;
+    if (o.metal) s += `<ellipse cx="27" cy="30" rx="3" ry="14" fill="#fff" opacity=".45"/>`;
+    s += `</g><path d="${body}" fill="none" stroke="${OUT}" stroke-width="1.1"/>`;
+    s += `<g fill="none" stroke="#4a2f1e" stroke-width="1.3" stroke-linecap="round"><path d="M24.5,7.5 C21,6.5 18,4.5 16,1.5"/><path d="M35.5,7.5 C39,6.5 42,4.5 44,1.5"/><path d="M25,10 C22,11 19.5,11.5 17,10.5"/><path d="M35,10 C38,11 40.5,11.5 43,10.5"/></g>`;
+    s += `<circle cx="22.4" cy="13.5" r="1.9" fill="#111"/><circle cx="37.6" cy="13.5" r="1.9" fill="#111"/>`;
+    return { vb: '0 0 60 100', svg: s, koi: true };
+  }
+  const E = (cx, cy, rx, ry, c, rot = 0) => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${c}" transform="rotate(${rot} ${cx} ${cy})"/>`;
+  const RED = '#d8231c', WHITE = '#fbfaf5', BLK = '#171717';
+
+  const ART = {
+    'g-orange': goldfish('g-orange', { body: '#f47a1f', belly: '#ffb45e', fin: '#ff9a3c' }),
+    'g-comet': goldfish('g-comet', { shape: 'slim', tail: 'fork', body: '#ffc21a', belly: '#ffe27a', fin: '#ffd54f' }),
+    'g-calico': goldfish('g-calico', { body: '#dbe6f2', fin: 'rgba(214,228,244,.95)', stroke: 'rgba(40,50,80,.8)',
+      spots: [[30, 34, 5, '#e0442a'], [44, 30, 4, '#111'], [52, 42, 6, '#e0442a'], [38, 46, 4, '#5a82c4'], [58, 34, 3, '#111'], [46, 52, 3, '#e8762a'], [26, 44, 2.5, '#111'], [60, 48, 3, '#5a82c4']],
+      tailSpots: '<circle cx="80" cy="30" r="3" fill="#e0442a"/><circle cx="86" cy="50" r="2.5" fill="#111"/><circle cx="78" cy="48" r="2.2" fill="#5a82c4"/><circle cx="90" cy="22" r="2" fill="#111"/>' }),
+    'g-moor': goldfish('g-moor', { body: '#1c1c22', belly: '#2c2c35', fin: '#2e2e38', stroke: '#000', eye: 'tele', eyeC: '#2a2a30', eyeS: '#8a8a95' }),
+    'g-panda': goldfish('g-panda', { body: '#f7f6f2', fin: '#f3f3ef', stroke: '#222', eye: 'tele', eyeC: '#1a1a1a', eyeS: '#555',
+      spots: [[24, 36, 11, BLK], [50, 26, 7, BLK], [60, 50, 6, BLK]],
+      tailSpots: '<path d="M71,40 C78,30 88,18 96,15 C92,26 88,33 86,40Z" fill="#1a1a1a"/><path d="M71,40 C78,50 88,62 96,65 C92,56 88,48 86,40Z" fill="#1a1a1a" opacity=".85"/>' }),
+    'g-redcap': goldfish('g-redcap', { body: WHITE, fin: '#f4f2ea', stroke: 'rgba(90,70,60,.85)', wen: 'cap', wenC: '#e3201a' }),
+    'g-blue': goldfish('g-blue', { body: '#6d8db0', belly: '#a9bfd6', fin: '#89a6c6', stroke: '#27405e', wen: 'cap', wenC: '#5d7ea3' }),
+    'g-choc': goldfish('g-choc', { body: '#7a4a25', belly: '#a36a3a', fin: '#8f5a30', stroke: '#3b200c', wen: 'cap', wenC: '#b86a2b' }),
+    'g-ryukin': goldfish('g-ryukin', { shape: 'hump', body: WHITE, fin: '#f6f3ec', tailC: '#e5391f', stroke: 'rgba(110,40,20,.85)',
+      spots: [[40, 26, 16, '#e5391f'], [58, 36, 9, '#e5391f']] }),
+    'g-bubble': goldfish('g-bubble', { body: '#f6b72b', belly: '#ffd978', fin: '#f9c950', dorsal: false, eye: 'bubble' }),
+    'g-celestial': goldfish('g-celestial', { body: '#d8241c', belly: '#f0583c', fin: '#e8402c', stroke: 'rgba(80,10,5,.85)', dorsal: false, eye: 'up' }),
+    'g-lionhead': goldfish('g-lionhead', { shape: 'round', body: '#f36b1c', belly: '#ff9d4a', fin: '#f7852e', dorsal: false, wen: 'full', wenC: '#e8501a' }),
+    'g-pearl': goldfish('g-pearl', { shape: 'round', body: '#fbf6ea', fin: '#f6efe0', stroke: 'rgba(120,60,20,.85)', pearl: true,
+      spots: [[38, 30, 10, '#f07a22'], [56, 46, 9, '#f07a22']] }),
+    'g-lilac': goldfish('g-lilac', { tail: 'veil', body: '#b39ddb', belly: '#d8cbef', fin: '#c9b8e8', stroke: '#4a3570' }),
+
+    'k-kohaku': koi('k-kohaku', { base: WHITE, patches: E(30, 18, 11, 9, RED) + E(27, 41, 12, 9, RED, 10) + E(33, 60, 8, 7, RED) }),
+    'k-tancho': koi('k-tancho', { base: WHITE, patches: `<circle cx="30" cy="17" r="7" fill="${RED}"/>` }),
+    'k-showa': koi('k-showa', { base: BLK, motoguro: true, fin: WHITE, patches: E(30, 19, 10, 8, RED) + E(25, 36, 7, 6, WHITE) + E(34, 48, 9, 8, RED) + E(27, 62, 6, 6, WHITE) }),
+    'k-sanke': koi('k-sanke', { base: WHITE, patches: E(30, 18, 10, 8, RED) + E(29, 46, 11, 8, RED, -10) + ['24,34,2.8', '37,31,2.3', '35,56,2.5', '26,62,2', '33,68,1.6'].map(v => { const [x, y, r] = v.split(','); return `<circle cx="${x}" cy="${y}" r="${r}" fill="${BLK}"/>`; }).join(''),
+      fin: WHITE }),
+    'k-ogon': koi('k-ogon', { metal: ['#b07d06', '#ffd84a', '#fff1a6'], fin: '#f2c43a', net: 'rgba(160,110,0,.35)' }),
+    'k-platinum': koi('k-platinum', { metal: ['#b9bec6', '#ffffff', '#f4f6f8'], fin: '#eef1f4', net: 'rgba(120,130,145,.3)' }),
+    'k-asagi': koi('k-asagi', { base: '#7893b0', finRed: true, fin: '#e9edf1', net: '#d6e1ec',
+      patches: E(30, 14, 12, 10, '#e4e9ee') + E(17.5, 45, 4, 17, '#d9471f') + E(42.5, 45, 4, 17, '#d9471f') }),
+    'k-chagoi': koi('k-chagoi', { base: '#9a6533', fin: '#a9763f', net: 'rgba(60,30,10,.45)', patches: E(30, 40, 9, 30, '#b27a42') }),
+    'k-shiro': koi('k-shiro', { base: BLK, motoguro: true, fin: WHITE, patches: E(26, 22, 9, 8, WHITE, -15) + E(35, 45, 8, 10, WHITE) + E(26, 64, 6, 6, WHITE) }),
+    'k-ki': koi('k-ki', { base: BLK, motoguro: true, fin: '#f4c836', patches: E(26, 22, 9, 8, '#f4c21e', -15) + E(35, 45, 8, 10, '#f4c21e') + E(26, 64, 6, 6, '#f4c21e') }),
+    'k-kujaku': koi('k-kujaku', { metal: ['#b9bec6', '#ffffff', '#f7f8fa'], fin: '#f3ede4', net: 'rgba(70,85,105,.75)',
+      patches: E(30, 20, 11, 8, '#ec6a1e') + E(26, 44, 9, 10, '#ec6a1e') + E(34, 62, 6, 7, '#ec6a1e') }),
+
+    'p-lilypad': { vb: '0 0 100 100', svg: '<path d="M50,52 L86.7,42.2 A38,38 0 1,1 74.4,22.9 Z" fill="#43a142" stroke="#1f5e22" stroke-width="3" stroke-linejoin="round"/><g stroke="#2a7a2c" stroke-width="2" fill="none"><path d="M50,52 L20,40 M50,52 L18,66 M50,52 L36,86 M50,52 L66,86 M50,52 L84,66 M50,52 L40,16"/></g><ellipse cx="34" cy="36" rx="10" ry="5" fill="#fff" opacity=".22" transform="rotate(-25 34 36)"/><circle cx="64" cy="66" r="4" fill="#bfe6ff" stroke="#6aa9d6"/>' },
+    'p-lotus': { vb: '0 0 100 100', svg: '<ellipse cx="50" cy="80" rx="38" ry="10" fill="#4a9c45" stroke="#24632a" stroke-width="2"/>' +
+      [-68, -34, 0, 34, 68].map(a => `<ellipse cx="50" cy="44" rx="10" ry="25" fill="#f7a8c8" stroke="#b83d74" stroke-width="2" transform="rotate(${a} 50 70)"/>`).join('') +
+      [-18, 18].map(a => `<ellipse cx="50" cy="46" rx="9" ry="22" fill="#ee6fa3" stroke="#b83d74" stroke-width="2" transform="rotate(${a} 50 70)"/>`).join('') +
+      '<ellipse cx="50" cy="48" rx="9" ry="21" fill="#f58ab6" stroke="#b83d74" stroke-width="2"/><circle cx="50" cy="66" r="7" fill="#ffd33d" stroke="#c9901a" stroke-width="1.5"/>' },
+    'p-food': { vb: '0 0 100 100', svg: '<rect x="27" y="14" width="46" height="15" rx="4" fill="#d6332a" stroke="#7d1510" stroke-width="2.5"/><rect x="24" y="28" width="52" height="62" rx="9" fill="#ffd24d" stroke="#a67c00" stroke-width="2.5"/><rect x="30" y="42" width="40" height="30" rx="5" fill="#fff" stroke="#a67c00" stroke-width="1.5"/><ellipse cx="46" cy="57" rx="10" ry="7" fill="#f47a1f"/><path d="M55,57 L64,50 L64,64Z" fill="#f47a1f"/><circle cx="41" cy="55" r="1.6" fill="#111"/><g fill="#e0442a"><circle cx="34" cy="82" r="2.5"/><circle cx="48" cy="84" r="2"/><circle cx="62" cy="81" r="2.5"/></g><g fill="#4a9c45"><circle cx="41" cy="80" r="2"/><circle cx="56" cy="84" r="2.3"/></g>' },
+    'p-net': { vb: '0 0 100 100', svg: '<defs><clipPath id="c-net"><ellipse cx="42" cy="38" rx="28" ry="25"/></clipPath></defs><path d="M62,58 L84,94" stroke="#8b5a2b" stroke-width="7" stroke-linecap="round"/><ellipse cx="42" cy="38" rx="28" ry="25" fill="rgba(180,220,245,.45)"/><g clip-path="url(#c-net)" stroke="#2f6f8f" stroke-width="1.6">' +
+      Array.from({ length: 12 }, (_, k) => `<path d="M${k * 7},0 L${k * 7 + 40},80 M${k * 7 + 20},0 L${k * 7 - 20},80"/>`).join('') + '</g><ellipse cx="42" cy="38" rx="28" ry="25" fill="none" stroke="#444" stroke-width="4.5"/>' },
+    'p-bubbles': { vb: '0 0 100 100', svg: [[40, 64, 20], [68, 36, 13], [32, 26, 9], [72, 72, 8], [56, 12, 6]].map(([x, y, r]) =>
+      `<circle cx="${x}" cy="${y}" r="${r}" fill="rgba(160,215,255,.35)" stroke="#2f86cc" stroke-width="3"/><path d="M${x - r * .55},${y - r * .15} A${r * .6},${r * .6} 0 0 1 ${x - r * .1},${y - r * .6}" fill="none" stroke="#fff" stroke-width="${Math.max(1.5, r * .18)}" stroke-linecap="round"/>`).join('') },
+    'p-eggs': { vb: '0 0 100 100', svg: [[50, 50], [34, 50], [66, 50], [42, 36], [58, 36], [42, 64], [58, 64], [26, 36], [74, 36], [26, 64], [74, 64], [50, 22], [50, 78]].map(([x, y]) =>
+      `<circle cx="${x}" cy="${y}" r="8.5" fill="rgba(255,196,110,.85)" stroke="#d0862a" stroke-width="1.8"/><circle cx="${x + 2}" cy="${y - 1}" r="2.2" fill="#2b1a0e"/><circle cx="${x - 3}" cy="${y - 3}" r="1.6" fill="#fff" opacity=".8"/>`).join('') },
+    'p-plant': { vb: '0 0 100 100', svg: '<ellipse cx="50" cy="92" rx="36" ry="6" fill="#d8c08a"/><g fill="none" stroke="#2e8b3a" stroke-width="4" stroke-linecap="round"><path d="M50,92 C44,70 58,46 48,10"/><path d="M34,92 C26,74 36,56 24,30"/><path d="M66,92 C74,72 62,54 76,26"/></g><g fill="#4fbf5a" stroke="#1f6e2a" stroke-width="1">' +
+      [[50, 72], [53, 52], [49, 32], [47, 16], [30, 76], [31, 58], [27, 40], [70, 74], [67, 56], [73, 36]].map(([x, y], k) => E(x - 7, y, 7, 2.6, '#4fbf5a', -20) + E(x + 7, y - 2, 7, 2.6, '#4fbf5a', 20)).join('') + '</g>' },
+    'p-bag': { vb: '0 0 100 100', svg: '<defs><clipPath id="c-bag"><path d="M34,30 C22,50 20,80 34,92 L66,92 C80,80 78,50 66,30Z"/></clipPath></defs><path d="M34,30 C22,50 20,80 34,92 L66,92 C80,80 78,50 66,30Z" fill="rgba(215,238,255,.6)"/><rect x="0" y="48" width="100" height="60" fill="rgba(80,165,230,.45)" clip-path="url(#c-bag)"/><path d="M26,48 Q38,44 50,48 T74,48" fill="none" stroke="#fff" stroke-width="2" clip-path="url(#c-bag)"/><ellipse cx="46" cy="70" rx="11" ry="7.5" fill="#f47a1f" stroke="rgba(60,32,14,.8)" stroke-width="1.2"/><path d="M56,70 L67,61 L64,70 L67,79Z" fill="#ff9a3c" stroke="rgba(60,32,14,.8)" stroke-width="1.2"/><circle cx="41" cy="68" r="1.8" fill="#111"/><path d="M34,30 C22,50 20,80 34,92 L66,92 C80,80 78,50 66,30Z" fill="none" stroke="#5f93bd" stroke-width="2.5"/><path d="M36,31 L64,31 L57,16 L43,16Z" fill="rgba(215,238,255,.8)" stroke="#5f93bd" stroke-width="2"/><rect x="40" y="22" width="20" height="6" rx="2" fill="#e0442a"/>' },
+    'p-frog': { emoji: '🐸' }, 'p-snail': { emoji: '🐌' }, 'p-duck': { emoji: '🦆' },
+  };
+
+  function buildSprite() {
+    if (document.getElementById('fxSprite')) return;
+    let defs = '';
+    for (const [id, a] of Object.entries(ART)) if (a.svg) defs += `<symbol id="fx-${id}" viewBox="${a.vb}">${a.svg}</symbol>`;
+    const holder = document.createElement('div');
+    holder.innerHTML = `<svg id="fxSprite" xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><defs>${defs}</defs></svg>`;
+    document.body.prepend(holder.firstChild);
+  }
+  function faceHTML(id) {
+    const a = ART[id];
+    if (a.emoji) return `<div class="f art"><em>${a.emoji}</em></div>`;
+    const [x, y, w, h] = a.vb.split(' ');
+    return `<div class="f art"><svg class="${a.koi ? 'koi' : 'fish'}" viewBox="${a.vb}"><use href="#fx-${id}" x="${x}" y="${y}" width="${w}" height="${h}"/></svg></div>`;
+  }
+
+  let board, els = [], svg, geo = null;  // geo = current screen mapping
+
+  function build(boardEl, game) {
+    buildSprite();
+    board = boardEl; board.innerHTML = ''; els = [];
+    for (let i = 0; i < game.G.n; i++) {
+      const el = document.createElement('div');
+      el.dataset.i = i; board.appendChild(el); els.push(el);
+    }
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'pathSvg'; board.appendChild(svg);
+  }
+  function refresh(game) {           // faces + visibility from state
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i], f = MahjongEngine.FACES[game.faces[i]];
+      el.className = 'tile z' + game.G.P[i].z + ' t-' + f.cat + (game.present[i] ? '' : ' removed');
+      el.innerHTML = faceHTML(game.faces[i]);
+      el.setAttribute('aria-label', f.name);
+    }
+  }
+
+  /* Fit the board into the available box. Two candidate orientations:
+     normal (15 tiles wide x 8 high) and transposed (8 x 15, great for portrait
+     phones). Tile aspect ratio flexes 1.12..1.36 to use the space. */
+  function fit(game, availW, availH) {
+    const G = game.G, C = (G.maxX + 2) / 2, R = (G.maxY + 2) / 2;
+    const OFF = 0.14, K = OFF * G.maxZ + 0.16;  // layer offset + tile thickness, in tile widths
+    let best = null;
+    for (const tr of [false, true]) {
+      const cols = tr ? R : C, rows = tr ? C : R;
+      const wW = availW / (cols + K);
+      const r = Math.min(1.36, Math.max(1.12, (availH / wW - K) / rows));
+      const w = Math.min(wW, availH / (rows * r + K), 96);
+      const score = w * w * r * (tr ? 0.97 : 1);        // slight preference for the classic orientation
+      if (!best || score > best.score) best = { tr, w, h: w * r, cols, rows, score };
+    }
+    const { tr, w, h } = best, off = OFF * w;
+    geo = { tr, w, h, off, base: off * G.maxZ };
+    board.style.fontSize = w + 'px';
+    board.style.width = (best.cols * w + K * w) + 'px';
+    board.style.height = (best.rows * h + K * w) + 'px';
+    for (let i = 0; i < els.length; i++) {
+      const p = G.P[i], sx = tr ? p.y : p.x, sy = tr ? p.x : p.y, el = els[i].style;
+      el.width = w + 'px'; el.height = h + 'px';
+      el.left = (geo.base + sx * w / 2 - p.z * off) + 'px';
+      el.top = (geo.base + sy * h / 2 - p.z * off) + 'px';
+      el.zIndex = p.z * 100 + sx + sy;     // thickness is drawn bottom-right => paint top-left first
+    }
+    svg.setAttribute('width', board.style.width); svg.setAttribute('height', board.style.height);
+    return geo;
+  }
+  function toScreen(x, y, z) {   // half-unit logical coords -> px inside board
+    const sx = geo.tr ? y : x, sy = geo.tr ? x : y;
+    return [geo.base + sx * geo.w / 2 - z * geo.off, geo.base + sy * geo.h / 2 - z * geo.off];
+  }
+  function drawPath(path) {
+    if (!path || !path.points) return;
+    const pts = path.points.map(p => toScreen(p.x, p.y, path.h).join(',')).join(' ');
+    const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    pl.setAttribute('points', pts); pl.setAttribute('stroke-width', Math.max(3, geo.w * 0.09));
+    svg.appendChild(pl);
+    setTimeout(() => { pl.style.opacity = '0'; }, 260);
+    setTimeout(() => pl.remove(), 700);
+  }
+  const el = i => els[i];
+  function flash(i, cls, ms) {
+    const e = els[i]; e.classList.remove(cls); void e.offsetWidth; e.classList.add(cls);
+    setTimeout(() => e.classList.remove(cls), ms);
+  }
+  return { build, refresh, fit, drawPath, el, flash, faceHTML, buildSprite, get geo() { return geo; } };
+})();
+
+/* ==========================================================================
+   7. UI / INPUT   +   8. GAME LOOP (timer, win/lose)
+   ========================================================================== */
+const UI = (() => {
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const rules = params.get('rules') || CONFIG.RULES;
+  const seed = params.has('seed') ? Number(params.get('seed')) : CONFIG.SEED;
+  const game = new MahjongEngine.Game({ rules, seed, maxTurns: CONFIG.MAX_TURNS, attempts: CONFIG.DEAL_ATTEMPTS });
+
+  const boardWrap = $('boardWrap'), board = $('board');
+  let sel = null, over = false;
+
+  /* ---- timer (8. game loop) ---- */
+  let elapsed = 0, running = false, last = null;
+  function tick() {
+    const now = performance.now();
+    if (running && !document.hidden && last != null) elapsed += now - last;
+    last = (running && !document.hidden) ? now : null;
+    $('time').textContent = fmt(elapsed);
+  }
+  const fmt = ms => { const s = Math.floor(ms / 1000); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+  setInterval(tick, 250);
+  document.addEventListener('visibilitychange', tick);
+  const startClock = () => { if (!running && !over) { running = true; last = performance.now(); } };
+
+  function hud() {
+    $('moves').textContent = game.moves;
+    $('left').textContent = game.remaining();
+    $('btnUndo').disabled = game.history.length === 0;
+    $('ruleLbl').textContent = 'Mahjong · ' + (game.rules === 'path' ? 'path rule' : 'classic rule') + ' ⓘ';
+  }
+  let toastT;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1300);
+  }
+
+  function setSel(i) {
+    if (sel != null) Renderer.el(sel).classList.remove('sel');
+    sel = i;
+    if (sel != null) Renderer.el(sel).classList.add('sel');
+  }
+
+  /* ---- the core tap handler ---- */
+  function onTap(i) {
+    if (over || !game.present[i]) return;
+    startClock();
+    if (!game.isFree(i)) {
+      Renderer.flash(i, 'bad', 450);
+      toast(game.rules === 'classic' ? 'Tile is blocked' : 'Tile is covered');
+      return;
+    }
+    if (sel == null) { setSel(i); return; }
+    if (sel === i) { setSel(null); return; }          // tap again = deselect
+    const a = sel, res = game.canMatch(a, i);
+    if (res.ok) {
+      game.remove(a, i);
+      if (CONFIG.SHOW_PATH && game.rules === 'path') Renderer.drawPath(res.path);
+      setSel(null);
+      for (const k of [a, i]) {
+        const e = Renderer.el(k); e.classList.remove('hint'); e.classList.add('gone');
+        setTimeout(() => { if (!game.present[k]) e.classList.add('removed'); }, 230);
+      }
+      hud(); checkEnd();
+    } else if (res.reason === 'nopath') {             // same face but no clear path
+      Renderer.flash(a, 'bad', 450); Renderer.flash(i, 'bad', 450);
+      toast('No clear path (max 2 turns)');
+    } else {                                          // different face: feedback + switch selection
+      Renderer.flash(i, 'bad', 450);
+      setSel(i);
+    }
+  }
+
+  function checkEnd() {
+    if (game.isWon()) {
+      running = false; tick(); over = true;
+      setTimeout(() => showOverlay('Pond cleared! 🐟🎉',
+        `Every goldfish and koi found its twin: all 144 tiles in <b>${fmt(elapsed)}</b> with <b>${game.moves}</b> moves` +
+        (game.shuffles ? ` and ${game.shuffles} shuffle${game.shuffles > 1 ? 's' : ''}` : '') + '.',
+        [['Play again', newGame, true]]), 350);
+    } else if (!game.hasMoves()) {
+      running = false; tick();
+      const btns = [['Shuffle', doShuffle, true], ['New game', newGame]];
+      if (game.history.length) btns.push(['Undo', doUndo]);
+      setTimeout(() => showOverlay('No moves left', `The pond is tangled: ${game.remaining()} tiles remain. Stir the water (shuffle) or start a new pond.`, btns), 300);
+    }
+  }
+  function showOverlay(title, html, buttons) {
+    $('ovTitle').textContent = title; $('ovText').innerHTML = html;
+    const box = $('ovBtns'); box.innerHTML = '';
+    for (const [label, fn, primary] of buttons) {
+      const b = document.createElement('button'); b.textContent = label;
+      if (primary) b.className = 'primary';
+      b.onclick = () => { hideOverlay(); fn(); };
+      box.appendChild(b);
+    }
+    $('overlay').hidden = false;
+  }
+  function hideOverlay() { $('overlay').hidden = true; }
+
+  function newGame() {
+    hideOverlay(); over = false; running = false; elapsed = 0; last = null;
+    game.newGame(); sel = null;
+    Renderer.refresh(game); hud(); tick();
+  }
+  function doShuffle() {
+    if (over) return;
+    hideOverlay(); setSel(null);
+    game.shuffle();
+    elapsed += CONFIG.SHUFFLE_PENALTY_SEC * 1000;
+    Renderer.refresh(game); hud();
+    if (game.remaining()) { startClock(); toast('Shuffled'); }
+    if (!game.hasMoves() && game.remaining()) {        // structurally impossible remainder
+      running = false;
+      showOverlay('Stuck', 'These remaining positions cannot be cleared under this rule (e.g. two tiles stacked). Start a new game?',
+        [['New game', newGame, true]]);
+    }
+  }
+  function doUndo() {
+    if (over) return;
+    const u = game.undo(); if (!u) return;
+    hideOverlay(); setSel(null);
+    for (const k of u) Renderer.el(k).classList.remove('gone', 'removed');
+    hud(); startClock();
+  }
+  function doHint() {
+    if (over) return;
+    const m = game.hint();
+    if (!m) { checkEnd(); return; }
+    startClock();
+    for (const k of [m[0], m[1]]) Renderer.flash(k, 'hint', 2300);
+  }
+
+  /* ---- fish guide / tile sheet (tap the title; ?sheet=1 opens it on load) ---- */
+  function showGuide() {
+    const groups = { gold: 'Goldfish', koi: 'Koi', pond: 'Farm & pond extras' };
+    let h = '';
+    for (const [cat, title] of Object.entries(groups)) {
+      h += `<h3>${title}</h3><div class="ggrid">`;
+      for (const [id, name, c] of MahjongEngine.FACE_LIST) if (c === cat)
+        h += `<div class="gitem"><div class="tile t-${c}">${Renderer.faceHTML(id)}</div><span>${name}</span></div>`;
+      h += '</div>';
+    }
+    $('guideBody').innerHTML = h + '<p style="font-size:12px;opacity:.75;margin-top:14px">Match two identical tiles. Tiles must be uncovered and joined by a clear path with at most 2 turns.</p>';
+    $('guide').hidden = false;
+  }
+  $('btnGuide').onclick = showGuide;
+  $('btnGuideClose').onclick = () => { $('guide').hidden = true; };
+
+  /* ---- input wiring ---- */
+  board.addEventListener('click', e => {
+    const t = e.target.closest('.tile'); if (t) onTap(+t.dataset.i);
+  });
+  $('btnHint').onclick = doHint;
+  $('btnUndo').onclick = doUndo;
+  $('btnShuffle').onclick = doShuffle;
+  $('btnNew').onclick = newGame;
+  document.addEventListener('gesturestart', e => e.preventDefault());   // iOS pinch
+  document.addEventListener('dblclick', e => e.preventDefault());
+
+  /* ---- responsive fit ---- */
+  let raf = 0;
+  function layout() {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      const r = boardWrap.getBoundingClientRect();
+      Renderer.fit(game, Math.max(50, r.width - 10), Math.max(50, r.height - 10));
+    });
+  }
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', () => setTimeout(layout, 150));
+  if (window.visualViewport) visualViewport.addEventListener('resize', layout);
+
+  /* ---- boot ---- */
+  Renderer.build(board, game);
+  Renderer.refresh(game); hud();
+  if (params.has('sheet')) showGuide();
+  { const r = boardWrap.getBoundingClientRect(); Renderer.fit(game, Math.max(50, r.width - 10), Math.max(50, r.height - 10)); }
+
+  return { game, onTap, newGame, showGuide, doShuffle, doUndo, doHint, layout,
+           state: () => ({ remaining: game.remaining(), moves: game.moves, sel, over,
+                           overlay: !$('overlay').hidden, overlayTitle: $('ovTitle').textContent,
+                           domTiles: board.querySelectorAll('.tile:not(.removed):not(.gone)').length,
+                           rules: game.rules, solvable: game.solvable, time: $('time').textContent }) };
+})();
+window.__game = UI;   // debug / test hook
+</script>
+</body>
+</html>

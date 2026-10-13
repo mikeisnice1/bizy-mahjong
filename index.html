@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0f5c72">
+<link rel="apple-touch-icon" href="icons/icon-180.png"><link rel="icon" href="icons/icon-192.png">
+<title>Bizy&rsquo;s Goldfish &amp; Koi Games</title><meta name="apple-mobile-web-app-title" content="Bizy's Games">
+<style>
+  body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif; color: #f4efe2; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at 20% 12%, rgba(255,255,255,.12), transparent 40%), radial-gradient(ellipse at 50% 45%, #2596a6, #16738a 50%, #0b4a63); }
+  main { width: min(560px, 92vw); text-align: center; padding: 24px 0; }
+  h1 { color: #ffd9a0; font-size: clamp(28px, 6vw, 44px); margin: 10px 0 4px; } p { opacity: .85; margin: 0 0 22px; }
+  a { display: flex; align-items: center; gap: 16px; text-align: left; text-decoration: none; color: #2b2410; margin: 14px 0; padding: 18px 20px; border-radius: 20px;
+      background: linear-gradient(#fffaf0, #f3dfb8); box-shadow: 0 5px 0 #a48f5c, 0 10px 24px rgba(0,0,0,.3); }
+  a:active { transform: translateY(3px); box-shadow: 0 2px 0 #a48f5c; }
+  a img, a span.e { width: 64px; height: 64px; border-radius: 14px; flex: none; font-size: 50px; line-height: 64px; text-align: center; }
+  a b { display: block; font-size: 21px; } a small { font-size: 14px; opacity: .75; }
+  footer { font-size: 12px; opacity: .6; margin-top: 18px; }
+</style></head><body><main>
+  <img src="icons/icon-180.png" width="90" height="90" alt="" style="border-radius:20px;box-shadow:0 6px 18px rgba(0,0,0,.35)">
+  <h1>Bizy&rsquo;s Goldfish &amp; Koi</h1><p>Hi Bizy! Pick a game 🐟</p>
+  <a href="mahjong4/"><img src="icons/icon-180.png" alt=""><div><b>Bizy&rsquo;s Goldfish &amp; Koi Mahjong</b><small>American or Hong Kong rules · you vs three computer players · works offline</small></div></a>
+  <a href="solitaire/"><span class="e">🐟</span><div><b>Mahjong Solitaire</b><small>Match pairs of goldfish, koi and pond tiles</small></div></a>
+  <footer>Tip: in Safari tap Share → Add to Home Screen for full-screen play.</footer>
+</main>
+<script>/* offline cache for this page + solitaire */ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
+</body></html>
