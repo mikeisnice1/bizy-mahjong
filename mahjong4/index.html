@@ -202,6 +202,17 @@
   .hint { text-align: center; font-size: calc(12px * var(--k, 1)); color: #cfe9dc; margin-top: calc(5px * var(--k, 1)); }
   #callout { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%) scale(.8); z-index: 50; pointer-events: none;
              font-size: calc(34px * var(--k, 1)); font-weight: 900; color: #fff; text-shadow: 0 calc(3px * var(--k, 1)) 0 #8e2415, 0 0 calc(18px * var(--k, 1)) rgba(0,0,0,.6); opacity: 0; transition: opacity .2s, transform .2s; white-space: nowrap; }
+  /* new-tile reveal */
+  #reveal { position: fixed; z-index: 60; transform: translate(-50%, -50%); text-align: center; cursor: pointer; padding: calc(12px * var(--k, 1)) calc(18px * var(--k, 1)) calc(8px * var(--k, 1));
+            border-radius: calc(18px * var(--k, 1)); background: rgba(6,38,52,.9); box-shadow: 0 0 0 2px #7ee0ff, 0 calc(10px * var(--k, 1)) calc(30px * var(--k, 1)) rgba(0,0,0,.5); animation: rvIn .25s ease-out; --w: calc(58px * var(--k, 1)); }
+  #reveal .rvLab { font-size: calc(18px * var(--k, 1)); font-weight: 900; color: #ffe27a; margin-bottom: calc(10px * var(--k, 1)); white-space: nowrap; }
+  #reveal .rvTiles { display: flex; gap: calc(8px * var(--k, 1)); justify-content: center; }
+  #reveal .rvTiles .tl { box-shadow: 0 0 0 .05em #7ee0ff, 0 0 .3em .06em rgba(120,220,255,.8), .05em .07em 0 #c9b27a; }
+  #reveal .rvTap { font-size: calc(11px * var(--k, 1)); opacity: .6; margin-top: calc(8px * var(--k, 1)); }
+  @keyframes rvIn { from { opacity: 0; transform: translate(-50%, -50%) scale(.6); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+  .tl.rvFly { position: fixed; z-index: 61; margin: 0; transform-origin: 0 0; transition: transform .38s cubic-bezier(.3,.8,.3,1); pointer-events: none; }
+  #hand .tl.arriving { opacity: 0; } #hand .drawnWrap:has(.arriving) > small { visibility: hidden; }
+  @media (prefers-reduced-motion: reduce) { #reveal { animation: none; } .tl.rvFly { transition: none; } }
   #callout.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
   /* landscape phones */
@@ -447,6 +458,7 @@
   <div id="actions"></div>
 </div>
 <div id="callout"></div>
+<div id="reveal" hidden></div>
 <div id="overlay" class="ov" hidden><div class="card" id="card"></div></div>
 <div id="help" class="ov" hidden><div class="card" id="helpCard"></div></div>
 <div id="cardView" class="ov" hidden><div class="card cardv" id="cardViewIn"></div></div>
@@ -2155,6 +2167,7 @@ const App = (() => {
     $('meInfo').innerHTML = `<span class="meTag"><span class="nm">${me.name}${g.dealer === 0 ? '<span class="dealer">D</span>' : ''}</span>
       ${AMmode() ? '' : `<span class="wind cjk w${w0}">${WCH[w0]}</span>`}<span class="sc">${me.score}</span>${me.flowers.length ? `<span class="flw">🌸×${me.flowers.length}</span>` : ''}</span><span class="prompt${isHumanTurn() || humanClaim() || (AMmode() && g.phase === 'charleston') ? ' me' : ''}">${prompt}</span>${AMmode() || !help ? '' : `<span class="help">${help}</span>`}`;
     $('meInfo').classList.toggle('active', g.current === 0 && g.phase === 'discard');
+    detectNew();
     // hand
     const drawn = g.current === 0 && g.phase === 'discard' && g.justDrew ? g.lastDraw : null;
     const conc = sortIds(me.hand.filter(id => id !== drawn));
@@ -2167,8 +2180,52 @@ const App = (() => {
     renderActions();
     fit();
   }
+  /* ---------- new-tile reveal: every tile Bizy receives (draw, call, swap, Charleston) is shown big over
+     the table for a moment, then slides into her hand. Purely visual: game timing is not touched. ---------- */
+  let seenIds = null, arriving = new Set(), revealT = null, flyT = null;
+  const reducedMotion = () => !!S.reduceMotion || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const revealHold = () => S.revealMs || (({ normal: 1200, fast: 900, turbo: 500 })[S.speed] ?? 1200);   // revealMs: test override
+  const myIds = () => { const me = g.players[0]; return new Set([...me.hand, ...me.melds.flatMap(m => m.tiles)]); };
+  function detectNew() {
+    const now = myIds(), prev = seenIds; seenIds = now;
+    if (!prev || autoHuman || g.phase === 'end' || g.phase === 'over') return;
+    const fresh = [...now].filter(id => !prev.has(id));
+    if (!fresh.length || fresh.length > 3) return;        // > 3 = a new deal, not a pick-up
+    showReveal(fresh);
+  }
+  function showReveal(ids) {
+    finishReveal(true);
+    const nm = id => tileName(typeOf(id));
+    const label = g.phase === 'charleston' ? `Passed to you` :
+      ids.length === 1 && ids[0] === g.lastDraw && g.current === 0 && g.justDrew ? `You drew ${nm(ids[0])}` : `You took ${ids.map(nm).join(', ')}`;
+    ids.forEach(id => arriving.add(id));
+    const el = $('reveal'), tb = $('table').getBoundingClientRect();
+    el.innerHTML = `<div class="rvLab">${label}</div><div class="rvTiles">${ids.map(id => tile(id)).join('')}</div><div class="rvTap">tap to continue</div>`;
+    el.style.left = (tb.left + tb.width / 2) + 'px'; el.style.top = (tb.top + tb.height / 2) + 'px';
+    el.hidden = false;
+    clearTimeout(revealT); revealT = setTimeout(() => finishReveal(), reducedMotion() ? Math.min(700, revealHold()) : revealHold());
+  }
+  function finishReveal(instant) {
+    clearTimeout(revealT); const el = $('reveal');
+    if (el.hidden) { arriving.clear(); return; }
+    const ids = [...arriving]; arriving.clear();
+    const fly = !instant && !reducedMotion();
+    if (fly) {
+      for (const id of ids) {
+        const src = el.querySelector(`.tl[data-id="${id}"]`), dst = $('hand').querySelector(`.tl[data-id="${id}"]`);
+        if (!src || !dst) continue;
+        const a = src.getBoundingClientRect(), b = dst.getBoundingClientRect(), c = src.cloneNode(true);
+        c.classList.add('rvFly'); c.style.cssText = `left:${a.left}px;top:${a.top}px;--w:${a.width}px`;
+        document.body.appendChild(c);
+        requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transform = `translate(${b.left - a.left}px,${b.top - a.top}px) scale(${b.width / a.width})`; }));
+        setTimeout(() => { c.remove(); const d = $('hand').querySelector(`.tl[data-id="${id}"]`); if (d) d.classList.remove('arriving'); }, 400);
+      }
+    } else $('hand').querySelectorAll('.tl.arriving').forEach(t => t.classList.remove('arriving'));
+    el.hidden = true;
+  }
+  $('reveal').addEventListener('click', () => finishReveal());
   function handCls(id) {
-    let c = '';
+    let c = arriving.has(id) ? ' arriving' : '';
     if (AMmode() && g.phase === 'charleston') { if (chSel.includes(id)) c += ' sel'; if (chNew.includes(id)) c += ' new'; }
     else if (id === sel) c += ' sel';
     const ks = keepSet(); if (ks) c += ks.has(id) ? ' keep' : ' spare';
@@ -2332,6 +2389,7 @@ const App = (() => {
 
   /* ---------- 5. input ---------- */
   function onHandTap(id) {
+    if (!$('reveal').hidden) finishReveal();
     if (AMmode()) return onHandTapAM(id);
     if (!isHumanTurn() || kongPick) return;
     if (sel === id) { humanDiscard(id); return; }
@@ -2391,7 +2449,8 @@ const App = (() => {
   document.addEventListener('gesturestart', e => e.preventDefault());
 
   /* ---------- overlays ---------- */
-  function openCard(html, bind) { $('card').innerHTML = html; $('overlay').hidden = false; $('card').scrollTop = 0; if (bind) bind($('card')); }
+  function openCard(html, bind) { finishReveal(true);
+    $('card').innerHTML = html; $('overlay').hidden = false; $('card').scrollTop = 0; if (bind) bind($('card')); }
   function confirmBox(title, text, yes) {
     openCard(`<h2>${title}</h2><p class="sub">${text}</p><div class="ovb"><button data-k="no">Cancel</button><button class="go" data-k="yes">OK</button></div>`, c => {
       c.querySelector('[data-k=no]').onclick = () => { $('overlay').hidden = true; };
@@ -2825,8 +2884,8 @@ const App = (() => {
         <div class="row2"><div class="lab">Start points</div>${seg('startPoints', [[500, '500'], [1000, '1000'], [2000, '2000']], S.startPoints)}</div>
         <div class="row2"><div class="lab">Tiles<small>theme</small></div>${seg('THEME', [['koi', '🐟 Goldfish &amp; Koi'], ['classic', '🀄 Classic']], S.THEME)}</div></div>
       <div class="sect"><h3>Options</h3>
-        ${(S.rules === 'american' ? [['hints', 'Top 5 hands panel', 'Closest card hands shown while you play'], ['autoPass', 'Auto-pass calls', 'Skip pung/kong/quint offers (Mahjong still asked)'], ['revealAI', 'Show AI hands', 'Learning / debug view']]
-            : [['autoPass', 'Auto-pass claims', 'Skip chow/pung/kong offers (wins still asked)'], ['revealAI', 'Show AI hands', 'Learning / debug view'], ['sevenPairs', 'Seven pairs', 'Allow the special hand'], ['flowers', 'Flowers & seasons', '8 bonus tiles, +1 fan each']])
+        ${(S.rules === 'american' ? [['hints', 'Top 5 hands panel', 'Closest card hands shown while you play'], ['autoPass', 'Auto-pass calls', 'Skip pung/kong/quint offers (Mahjong still asked)'], ['revealAI', 'Show AI hands', 'Learning / debug view'], ['reduceMotion', 'Reduce motion', 'No sliding tiles, shorter pick-up reveal']]
+            : [['autoPass', 'Auto-pass claims', 'Skip chow/pung/kong offers (wins still asked)'], ['revealAI', 'Show AI hands', 'Learning / debug view'], ['sevenPairs', 'Seven pairs', 'Allow the special hand'], ['flowers', 'Flowers & seasons', '8 bonus tiles, +1 fan each'], ['reduceMotion', 'Reduce motion', 'No sliding tiles, shorter pick-up reveal']])
           .map(([k, l, d]) => `<div class="tog"><div>${l}<small>${d}</small></div><button class="sw ${S[k] ? 'on' : ''}" data-tog="${k}" aria-label="${l}"></button></div>`).join('')}</div>
       </details>
       <button class="linkBtn" id="bRules">How to play</button>${S.rules === 'american' ? '<button class="linkBtn" id="bCard">📋 View the card</button>' : ''}`;
@@ -2855,7 +2914,7 @@ const App = (() => {
       ? new AM.Game({ names, length: S.length, blanks: S.blanks, startPoints: S.startPoints, seed: opts.seed ?? S.seed })
       : new MJ.Game({ names, length: S.length, flowers: S.flowers, sevenPairs: S.sevenPairs, startPoints: S.startPoints,
       pointUnit: S.pointUnit, fanLimit: S.fanLimit, seed: opts.seed ?? S.seed });
-    chSel = []; chNew = []; pin = null; jokerPick = false;
+    chSel = []; chNew = []; pin = null; jokerPick = false; seenIds = null; finishReveal(true);
     rng = MJ.makeRng(opts.seed ?? S.seed ?? undefined);
     sel = null; kongPick = false; logSeen = 0;
     $('setup').hidden = true; $('game').hidden = false; $('overlay').hidden = true;
@@ -2873,7 +2932,7 @@ const App = (() => {
     state: () => g && ({ phase: g.phase, current: g.current, hand: g.players[0].hand.length, handNo: g.handNo, handsPlayed: g.handsPlayed,
       overlay: !$('overlay').hidden, cardTitle: $('card').querySelector('h2')?.textContent, claimShown: !!document.querySelector('#actions [data-act^="claim:"]'),
       tiles: g.tileCount(), scores: g.players.map(p => p.score), am: AMmode(), chStage: AMmode() && g.phase === 'charleston' ? g.ch.stage : null, chIdx: AMmode() && g.ch ? g.ch.idx : null, pin }),
-    pinHand: id => { pin = id; render(); }, showCardView, get chSel() { return chSel; },
+    pinHand: id => { pin = id; render(); }, get revealShown() { return !$('reveal').hidden; }, showCardView, get chSel() { return chSel; },
   };
 })();
 window.__mj = App;
